@@ -61,6 +61,9 @@ protected:
   /// Small section is used.
   bool UseSmallSection = true;
 
+  /// Hardware CAS instruction availability (set by SubtargetFeature)
+  bool HasHardwareCAS = false;
+
   const M68kTargetMachine &TM;
 
   SelectionDAGTargetInfo TSInfo;
@@ -90,6 +93,10 @@ public:
   bool atLeastM68030() const { return SubtargetKind >= M30; }
   bool atLeastM68040() const { return SubtargetKind >= M40; }
   bool atLeastM68060() const { return SubtargetKind >= M60; }
+
+  /// Hardware CAS instruction support (MC68020/030/040 only)
+  /// Note: MC68060 removed CAS from hardware (Vector 61 trap)
+  bool hasHardwareCAS() const { return HasHardwareCAS; }
 
   /// Floating point support
   bool hasFPU() const { return FPUKind.has_value(); }

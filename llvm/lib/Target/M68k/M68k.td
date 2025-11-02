@@ -56,6 +56,12 @@ def FeatureISA60
                      "Is M68060 ISA supported",
                      [ FeatureISA40 ]>;
 
+// CAS instruction support (MC68020/030/040 only, removed in MC68060)
+def FeatureHardwareCAS
+  : SubtargetFeature<"hwcas", "HasHardwareCAS", "true",
+                     "Target has hardware CAS/CAS2 instructions",
+                     [FeatureISA20]>;
+
 foreach i = {0-6} in
   def FeatureReserveA#i :
       SubtargetFeature<"reserve-a"#i, "UserReservedRegister[M68k::A"#i#"]",
@@ -77,10 +83,19 @@ class Proc<string Name, list<SubtargetFeature> Features>
 def : Proc<"generic", [ FeatureISA00 ]>;
 def : Proc<"M68000",  [ FeatureISA00 ]>;
 def : Proc<"M68010",  [ FeatureISA10 ]>;
-def : Proc<"M68020",  [ FeatureISA20 ]>;
-def : Proc<"M68030",  [ FeatureISA30 ]>;
-def : Proc<"M68040",  [ FeatureISA40 ]>;
-def : Proc<"M68060",  [ FeatureISA60 ]>;
+def : Proc<"M68020",  [ FeatureISA20, FeatureHardwareCAS ]>;
+def : Proc<"M68030",  [ FeatureISA30, FeatureHardwareCAS ]>;
+def : Proc<"M68040",  [ FeatureISA40, FeatureHardwareCAS ]>;
+def : Proc<"M68060",  [ FeatureISA60 ]>; // NO FeatureHardwareCAS!
+
+//===----------------------------------------------------------------------===//
+// Predicates
+//===----------------------------------------------------------------------===//
+
+// Predicate for hardware CAS support (MC68020/030/040 only)
+def SupportsCAS : Predicate<"Subtarget->hasHardwareCAS()">,
+                  AssemblerPredicate<(all_of FeatureHardwareCAS),
+                                     "Hardware CAS support required">;
 
 //===----------------------------------------------------------------------===//
 // Register File Description
