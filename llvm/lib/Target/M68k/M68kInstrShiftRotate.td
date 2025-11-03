@@ -77,13 +77,19 @@ multiclass MxSROp<string MN, SDNode NODE, bit RODI, bits<2> ROOP> {
   let Defs = [CCR] in {
   let Constraints = "$src = $dst" in {
 
-  def NAME#"8dd"  : MxSR_DD<MN, MxType8d,  NODE, RODI, ROOP>;
-  def NAME#"16dd" : MxSR_DD<MN, MxType16d, NODE, RODI, ROOP>;
-  def NAME#"32dd" : MxSR_DD<MN, MxType32d, NODE, RODI, ROOP>;
+  // Register shifts - variable shift count (expensive: 2 + 2*n cycles)
+  let SchedRW = [WriteSHIFT_R] in {
+    def NAME#"8dd"  : MxSR_DD<MN, MxType8d,  NODE, RODI, ROOP>;
+    def NAME#"16dd" : MxSR_DD<MN, MxType16d, NODE, RODI, ROOP>;
+    def NAME#"32dd" : MxSR_DD<MN, MxType32d, NODE, RODI, ROOP>;
+  }
 
-  def NAME#"8di"  : MxSR_DI<MN, MxType8d,  NODE, RODI, ROOP>;
-  def NAME#"16di" : MxSR_DI<MN, MxType16d, NODE, RODI, ROOP>;
-  def NAME#"32di" : MxSR_DI<MN, MxType32d, NODE, RODI, ROOP>;
+  // Immediate shifts - fixed shift count (cheaper: 2 + 2*imm cycles, known at compile-time)
+  let SchedRW = [WriteSHIFT_I] in {
+    def NAME#"8di"  : MxSR_DI<MN, MxType8d,  NODE, RODI, ROOP>;
+    def NAME#"16di" : MxSR_DI<MN, MxType16d, NODE, RODI, ROOP>;
+    def NAME#"32di" : MxSR_DI<MN, MxType32d, NODE, RODI, ROOP>;
+  }
 
   } // $src = $dst
   } // Defs = [CCR]

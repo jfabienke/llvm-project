@@ -85,48 +85,58 @@ class MxBIT_MI<string MN, bits<3> OPMODE, MxType TYPE,
 }
 } // Defs = [CCR]
 
-def BTST8qd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.QOp,
-                        MxEncAddrMode_q<"dst">>;
-def BTST8kd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.KOp,
-                        MxEncAddrMode_k<"dst">>;
-def BTST8qi : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.QOp,
-                        MxEncAddrMode_q<"dst">>;
-def BTST8ki : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.KOp,
-                        MxEncAddrMode_k<"dst">>;
-
-multiclass MxBIT<string MN, bits<3> OP, bits<3> OPI> {
-  // Register Bit manipulation limited to 32 bits only
-  def NAME#32dd : MxBIT_RR<MN, OP, MxType32d>;
-  def NAME#32di : MxBIT_RI<MN, OPI, MxType32d>;
-
-  // Memory Bit manipulation limited to 8 bits only
-  def NAME#8jd : MxBIT_MR<MN, OP, MxType8d,
-                          MxType8.JOp, MxEncAddrMode_j<"dst">>;
-  def NAME#8od : MxBIT_MR<MN, OP, MxType8d,
-                          MxType8.OOp, MxEncAddrMode_o<"dst">>;
-  def NAME#8ed : MxBIT_MR<MN, OP, MxType8d,
-                          MxType8.EOp, MxEncAddrMode_e<"dst">>;
-  def NAME#8pd : MxBIT_MR<MN, OP, MxType8d,
-                          MxType8.POp, MxEncAddrMode_p<"dst">>;
-  def NAME#8fd : MxBIT_MR<MN, OP, MxType8d,
-                          MxType8.FOp, MxEncAddrMode_f<"dst">>;
-
-  def NAME#8ji : MxBIT_MI<MN, OPI, MxType8d,
-                          MxType8.JOp, MxEncAddrMode_j<"dst">>;
-  def NAME#8oi : MxBIT_MI<MN, OPI, MxType8d,
-                          MxType8.OOp, MxEncAddrMode_o<"dst">>;
-  def NAME#8ei : MxBIT_MI<MN, OPI, MxType8d,
-                          MxType8.EOp, MxEncAddrMode_e<"dst">>;
-  def NAME#8pi : MxBIT_MI<MN, OPI, MxType8d,
-                          MxType8.POp, MxEncAddrMode_p<"dst">>;
-  def NAME#8fi : MxBIT_MI<MN, OPI, MxType8d,
-                          MxType8.FOp, MxEncAddrMode_f<"dst">>;
+// Memory bit test - read-only operation
+let SchedRW = [WriteBTST_M] in {
+  def BTST8qd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.QOp,
+                          MxEncAddrMode_q<"dst">>;
+  def BTST8kd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.KOp,
+                          MxEncAddrMode_k<"dst">>;
+  def BTST8qi : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.QOp,
+                          MxEncAddrMode_q<"dst">>;
+  def BTST8ki : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.KOp,
+                          MxEncAddrMode_k<"dst">>;
 }
 
-defm BCHG : MxBIT<"bchg", 0b101, 0b001>;
-defm BCLR : MxBIT<"bclr", 0b110, 0b010>;
-defm BSET : MxBIT<"bset", 0b111, 0b011>;
-defm BTST : MxBIT<"btst", 0b100, 0b000>;
+multiclass MxBIT<string MN, bits<3> OP, bits<3> OPI, SchedWrite RW_R, SchedWrite RW_M> {
+  // Register Bit manipulation limited to 32 bits only
+  let SchedRW = [RW_R] in {
+    def NAME#32dd : MxBIT_RR<MN, OP, MxType32d>;
+    def NAME#32di : MxBIT_RI<MN, OPI, MxType32d>;
+  }
+
+  // Memory Bit manipulation limited to 8 bits only (read-modify-write)
+  let SchedRW = [RW_M] in {
+    def NAME#8jd : MxBIT_MR<MN, OP, MxType8d,
+                            MxType8.JOp, MxEncAddrMode_j<"dst">>;
+    def NAME#8od : MxBIT_MR<MN, OP, MxType8d,
+                            MxType8.OOp, MxEncAddrMode_o<"dst">>;
+    def NAME#8ed : MxBIT_MR<MN, OP, MxType8d,
+                            MxType8.EOp, MxEncAddrMode_e<"dst">>;
+    def NAME#8pd : MxBIT_MR<MN, OP, MxType8d,
+                            MxType8.POp, MxEncAddrMode_p<"dst">>;
+    def NAME#8fd : MxBIT_MR<MN, OP, MxType8d,
+                            MxType8.FOp, MxEncAddrMode_f<"dst">>;
+
+    def NAME#8ji : MxBIT_MI<MN, OPI, MxType8d,
+                            MxType8.JOp, MxEncAddrMode_j<"dst">>;
+    def NAME#8oi : MxBIT_MI<MN, OPI, MxType8d,
+                            MxType8.OOp, MxEncAddrMode_o<"dst">>;
+    def NAME#8ei : MxBIT_MI<MN, OPI, MxType8d,
+                            MxType8.EOp, MxEncAddrMode_e<"dst">>;
+    def NAME#8pi : MxBIT_MI<MN, OPI, MxType8d,
+                            MxType8.POp, MxEncAddrMode_p<"dst">>;
+    def NAME#8fi : MxBIT_MI<MN, OPI, MxType8d,
+                            MxType8.FOp, MxEncAddrMode_f<"dst">>;
+  }
+}
+
+// Bit modification instructions - read-modify-write, more expensive than BTST
+defm BCHG : MxBIT<"bchg", 0b101, 0b001, WriteBCHG_R, WriteBCHG_M>;
+defm BCLR : MxBIT<"bclr", 0b110, 0b010, WriteBCHG_R, WriteBCHG_M>;
+defm BSET : MxBIT<"bset", 0b111, 0b011, WriteBCHG_R, WriteBCHG_M>;
+
+// Bit test instruction - read-only, faster than modification operations
+defm BTST : MxBIT<"btst", 0b100, 0b000, WriteBTST_R, WriteBTST_M>;
 
 // Codegen patterns
 

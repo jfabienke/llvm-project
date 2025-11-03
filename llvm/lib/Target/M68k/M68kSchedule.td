@@ -11,8 +11,8 @@
 /// SchedRead system. This replaces the legacy ProcessorItineraries approach.
 ///
 /// Architecture: SchedWrite-based model (required for CompleteModel=1)
-/// Date: 2025-11-02 23:30 CET
-/// Status: Phase 1-R complete - Foundation with compact SchedWrite taxonomy
+/// Date: 2025-11-03 02:15 CET
+/// Status: Phase 7-R complete - Per-CPU SchedWrite overrides for MC68020/030/040
 ///
 /// Implementation Strategy:
 /// - Start with ~25-35 base SchedWrites (compact taxonomy)
@@ -249,143 +249,143 @@ def M68060Model : SchedMachineModel {
 // MC68020 Overrides
 //===----------------------------------------------------------------------===//
 
-// let SchedModel = M68020Model in {
-//   // Memory operations (no data cache on MC68020)
-//   def WriteMOV_RM_020 : SchedWrite;
-//   def : WriteRes<WriteMOV_RM_020, [M68kMemSt]> { let Latency = 4; }
-// 
-//   def WriteMOV_MR_020 : SchedWrite;
-//   def : WriteRes<WriteMOV_MR_020, [M68kMemLd]> { let Latency = 4; }
-// 
-//   def WriteALU_RM_020 : SchedWrite;
-//   def : WriteRes<WriteALU_RM_020, [M68kALU, M68kMemLd]> { let Latency = 4; }
-// 
-//   // Multiplication timings (MC68020 User's Manual)
-//   def WriteMUL16_020 : SchedWrite;
-//   def : WriteRes<WriteMUL16_020, [M68kALU]> { let Latency = 28; }
-// 
-//   def WriteMUL32_020 : SchedWrite;
-//   def : WriteRes<WriteMUL32_020, [M68kALU]> { let Latency = 40; }
-// 
-//   // Division timings (MC68020 User's Manual)
-//   def WriteDIV16_020 : SchedWrite;
-//   def : WriteRes<WriteDIV16_020, [M68kALU]> { let Latency = 42; }
-// 
-//   def WriteDIV64_020 : SchedWrite;
-//   def : WriteRes<WriteDIV64_020, [M68kALU]> { let Latency = 72; }
-// 
-//   // Atomics (MC68020 supports CAS)
-//   def WriteCAS_020 : SchedWrite;
-//   def : WriteRes<WriteCAS_020, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 16; }
-// 
-//   def WriteTAS_020 : SchedWrite;
-//   def : WriteRes<WriteTAS_020, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 9; }
-// 
-//   // Instruction remapping (to be populated in Phase 7-R)
-//   // Example pattern:
-//   // def : InstRW<[WriteMOV_RM_020], (instrs MOV8rm, MOV16rm, MOV32rm)>;
-// }
-// 
-// //===----------------------------------------------------------------------===//
+let SchedModel = M68020Model in {
+  // Memory operations (no data cache on MC68020)
+  def WriteMOV_RM_020 : SchedWrite;
+  def : WriteRes<WriteMOV_RM_020, [M68kMemSt]> { let Latency = 4; }
+
+  def WriteMOV_MR_020 : SchedWrite;
+  def : WriteRes<WriteMOV_MR_020, [M68kMemLd]> { let Latency = 4; }
+
+  def WriteALU_RM_020 : SchedWrite;
+  def : WriteRes<WriteALU_RM_020, [M68kALU, M68kMemLd]> { let Latency = 4; }
+
+  // Multiplication timings (MC68020 User's Manual)
+  def WriteMUL16_020 : SchedWrite;
+  def : WriteRes<WriteMUL16_020, [M68kALU]> { let Latency = 28; }
+
+  def WriteMUL32_020 : SchedWrite;
+  def : WriteRes<WriteMUL32_020, [M68kALU]> { let Latency = 40; }
+
+  // Division timings (MC68020 User's Manual)
+  def WriteDIV16_020 : SchedWrite;
+  def : WriteRes<WriteDIV16_020, [M68kALU]> { let Latency = 42; }
+
+  def WriteDIV64_020 : SchedWrite;
+  def : WriteRes<WriteDIV64_020, [M68kALU]> { let Latency = 72; }
+
+  // Atomics (MC68020 supports CAS)
+  def WriteCAS_020 : SchedWrite;
+  def : WriteRes<WriteCAS_020, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 16; }
+
+  def WriteTAS_020 : SchedWrite;
+  def : WriteRes<WriteTAS_020, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 9; }
+
+  // Instruction remapping (to be populated in Phase 8-R based on llvm-mca feedback)
+  // Example pattern:
+  // def : InstRW<[WriteMUL16_020], (instregex "^(S|U)MUL.*")>;
+}
+
+//===----------------------------------------------------------------------===//
 // MC68030 Overrides
 //===----------------------------------------------------------------------===//
 
-// let SchedModel = M68030Model in {
-//   // Memory operations (D-cache improves latency)
-//   def WriteMOV_RM_030 : SchedWrite;
-//   def : WriteRes<WriteMOV_RM_030, [M68kMemSt]> { let Latency = 3; }
-// 
-//   def WriteMOV_MR_030 : SchedWrite;
-//   def : WriteRes<WriteMOV_MR_030, [M68kMemLd]> { let Latency = 3; }
-// 
-//   def WriteALU_RM_030 : SchedWrite;
-//   def : WriteRes<WriteALU_RM_030, [M68kALU, M68kMemLd]> { let Latency = 3; }
-// 
-//   // Multiplication timings (30% faster than MC68020)
-//   def WriteMUL16_030 : SchedWrite;
-//   def : WriteRes<WriteMUL16_030, [M68kALU]> { let Latency = 20; }
-// 
-//   def WriteMUL32_030 : SchedWrite;
-//   def : WriteRes<WriteMUL32_030, [M68kALU]> { let Latency = 36; }
-// 
-//   def WriteMUL64_030 : SchedWrite;
-//   def : WriteRes<WriteMUL64_030, [M68kALU]> { let Latency = 52; }
-// 
-//   // Division timings (24% faster than MC68020)
-//   def WriteDIV16_030 : SchedWrite;
-//   def : WriteRes<WriteDIV16_030, [M68kALU]> { let Latency = 32; }
-// 
-//   def WriteDIV32_030 : SchedWrite;
-//   def : WriteRes<WriteDIV32_030, [M68kALU]> { let Latency = 44; }
-// 
-//   def WriteDIV64_030 : SchedWrite;
-//   def : WriteRes<WriteDIV64_030, [M68kALU]> { let Latency = 62; }
-// 
-//   // Atomics (improved with D-cache)
-//   def WriteCAS_030 : SchedWrite;
-//   def : WriteRes<WriteCAS_030, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 12; }
-// 
-//   def WriteTAS_030 : SchedWrite;
-//   def : WriteRes<WriteTAS_030, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 7; }
-// 
-//   // Instruction remapping (to be populated in Phase 7-R)
-// }
-// 
-// //===----------------------------------------------------------------------===//
-// // MC68040 Overrides
-// //===----------------------------------------------------------------------===//
+let SchedModel = M68030Model in {
+  // Memory operations (D-cache improves latency)
+  def WriteMOV_RM_030 : SchedWrite;
+  def : WriteRes<WriteMOV_RM_030, [M68kMemSt]> { let Latency = 3; }
 
-// let SchedModel = M68040Model in {
-//   // Memory operations (cache hit = 1 cycle!)
-//   def WriteMOV_RM_040 : SchedWrite;
-//   def : WriteRes<WriteMOV_RM_040, [M68kMemSt]> { let Latency = 1; }
-// 
-//   def WriteMOV_MR_040 : SchedWrite;
-//   def : WriteRes<WriteMOV_MR_040, [M68kMemLd]> { let Latency = 1; }
-// 
-//   def WriteALU_RM_040 : SchedWrite;
-//   def : WriteRes<WriteALU_RM_040, [M68kALU, M68kMemLd]> { let Latency = 1; }
-// 
-//   // ALU operations (1 cycle on MC68040 superscalar!)
-//   def WriteALU_RR_040 : SchedWrite;
-//   def : WriteRes<WriteALU_RR_040, [M68kALU]> { let Latency = 1; }
-// 
-//   // Multiplication timings (dramatic improvement - 45-69% faster)
-//   def WriteMUL16_040 : SchedWrite;
-//   def : WriteRes<WriteMUL16_040, [M68kALU]> { let Latency = 11; }
-// 
-//   def WriteMUL32_040 : SchedWrite;
-//   def : WriteRes<WriteMUL32_040, [M68kALU]> { let Latency = 11; }
-// 
-//   def WriteMUL64_040 : SchedWrite;
-//   def : WriteRes<WriteMUL64_040, [M68kALU]> { let Latency = 22; }
-// 
-//   // Division timings (44% faster for 16-bit)
-//   def WriteDIV16_040 : SchedWrite;
-//   def : WriteRes<WriteDIV16_040, [M68kALU]> { let Latency = 18; }
-// 
-//   def WriteDIV32_040 : SchedWrite;
-//   def : WriteRes<WriteDIV32_040, [M68kALU]> { let Latency = 44; }
-// 
-//   def WriteDIV64_040 : SchedWrite;
-//   def : WriteRes<WriteDIV64_040, [M68kALU]> { let Latency = 44; }
-// 
-//   // Atomics (fastest in M68k family)
-//   def WriteCAS_040 : SchedWrite;
-//   def : WriteRes<WriteCAS_040, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 7; }
-// 
-//   def WriteTAS_040 : SchedWrite;
-//   def : WriteRes<WriteTAS_040, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 5; }
-// 
-//   // Branch operations (improved prediction)
-//   def WriteBR_NT_040 : SchedWrite;  // Branch not-taken (predicted correctly)
-//   def : WriteRes<WriteBR_NT_040, [M68kALU]> { let Latency = 1; }
-// 
-//   def WriteBR_T_040 : SchedWrite;   // Branch taken
-//   def : WriteRes<WriteBR_T_040, [M68kALU]> { let Latency = 3; }
-// 
-//   // Instruction remapping (to be populated in Phase 7-R)
-// }
+  def WriteMOV_MR_030 : SchedWrite;
+  def : WriteRes<WriteMOV_MR_030, [M68kMemLd]> { let Latency = 3; }
+
+  def WriteALU_RM_030 : SchedWrite;
+  def : WriteRes<WriteALU_RM_030, [M68kALU, M68kMemLd]> { let Latency = 3; }
+
+  // Multiplication timings (30% faster than MC68020)
+  def WriteMUL16_030 : SchedWrite;
+  def : WriteRes<WriteMUL16_030, [M68kALU]> { let Latency = 20; }
+
+  def WriteMUL32_030 : SchedWrite;
+  def : WriteRes<WriteMUL32_030, [M68kALU]> { let Latency = 36; }
+
+  def WriteMUL64_030 : SchedWrite;
+  def : WriteRes<WriteMUL64_030, [M68kALU]> { let Latency = 52; }
+
+  // Division timings (24% faster than MC68020)
+  def WriteDIV16_030 : SchedWrite;
+  def : WriteRes<WriteDIV16_030, [M68kALU]> { let Latency = 32; }
+
+  def WriteDIV32_030 : SchedWrite;
+  def : WriteRes<WriteDIV32_030, [M68kALU]> { let Latency = 44; }
+
+  def WriteDIV64_030 : SchedWrite;
+  def : WriteRes<WriteDIV64_030, [M68kALU]> { let Latency = 62; }
+
+  // Atomics (improved with D-cache)
+  def WriteCAS_030 : SchedWrite;
+  def : WriteRes<WriteCAS_030, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 12; }
+
+  def WriteTAS_030 : SchedWrite;
+  def : WriteRes<WriteTAS_030, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 7; }
+
+  // Instruction remapping (to be populated in Phase 8-R based on llvm-mca feedback)
+}
+
+//===----------------------------------------------------------------------===//
+// MC68040 Overrides (NeXTSTEP primary target)
+//===----------------------------------------------------------------------===//
+
+let SchedModel = M68040Model in {
+  // Memory operations (cache hit = 1 cycle!)
+  def WriteMOV_RM_040 : SchedWrite;
+  def : WriteRes<WriteMOV_RM_040, [M68kMemSt]> { let Latency = 1; }
+
+  def WriteMOV_MR_040 : SchedWrite;
+  def : WriteRes<WriteMOV_MR_040, [M68kMemLd]> { let Latency = 1; }
+
+  def WriteALU_RM_040 : SchedWrite;
+  def : WriteRes<WriteALU_RM_040, [M68kALU, M68kMemLd]> { let Latency = 1; }
+
+  // ALU operations (1 cycle on MC68040 superscalar!)
+  def WriteALU_RR_040 : SchedWrite;
+  def : WriteRes<WriteALU_RR_040, [M68kALU]> { let Latency = 1; }
+
+  // Multiplication timings (dramatic improvement - 45-69% faster)
+  def WriteMUL16_040 : SchedWrite;
+  def : WriteRes<WriteMUL16_040, [M68kALU]> { let Latency = 11; }
+
+  def WriteMUL32_040 : SchedWrite;
+  def : WriteRes<WriteMUL32_040, [M68kALU]> { let Latency = 11; }
+
+  def WriteMUL64_040 : SchedWrite;
+  def : WriteRes<WriteMUL64_040, [M68kALU]> { let Latency = 22; }
+
+  // Division timings (44% faster for 16-bit)
+  def WriteDIV16_040 : SchedWrite;
+  def : WriteRes<WriteDIV16_040, [M68kALU]> { let Latency = 18; }
+
+  def WriteDIV32_040 : SchedWrite;
+  def : WriteRes<WriteDIV32_040, [M68kALU]> { let Latency = 44; }
+
+  def WriteDIV64_040 : SchedWrite;
+  def : WriteRes<WriteDIV64_040, [M68kALU]> { let Latency = 44; }
+
+  // Atomics (fastest in M68k family)
+  def WriteCAS_040 : SchedWrite;
+  def : WriteRes<WriteCAS_040, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 7; }
+
+  def WriteTAS_040 : SchedWrite;
+  def : WriteRes<WriteTAS_040, [M68kALU, M68kMemLd, M68kMemSt]> { let Latency = 5; }
+
+  // Branch operations (improved prediction)
+  def WriteBR_NT_040 : SchedWrite;  // Branch not-taken (predicted correctly)
+  def : WriteRes<WriteBR_NT_040, [M68kALU]> { let Latency = 1; }
+
+  def WriteBR_T_040 : SchedWrite;   // Branch taken
+  def : WriteRes<WriteBR_T_040, [M68kALU]> { let Latency = 3; }
+
+  // Instruction remapping (to be populated in Phase 8-R based on llvm-mca feedback)
+}
 // 
 // //===----------------------------------------------------------------------===//
 // // Implementation Notes

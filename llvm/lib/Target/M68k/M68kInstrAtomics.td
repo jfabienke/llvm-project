@@ -35,6 +35,7 @@ foreach size = [8, 16, 32] in {
 }
 
 // CAS instructions - MC68020/030/040 only
+// These are atomic read-modify-write operations with bus locking
 let Predicates = [SupportsCAS] in {
 class MxCASOp<bits<2> size_encoding, MxType type>
     : MxInst<(outs type.ROp:$out),
@@ -49,9 +50,12 @@ class MxCASOp<bits<2> size_encoding, MxType type>
   let mayStore = 1;
 }
 
-def CAS8  : MxCASOp<0x1, MxType8d>;   // Encoding: 0b01
-def CAS16 : MxCASOp<0x2, MxType16d>;  // Encoding: 0b10
-def CAS32 : MxCASOp<0x3, MxType32d>;  // Encoding: 0b11
+// All CAS variants use WriteCAS (expensive atomic RMW operation)
+let SchedRW = [WriteCAS] in {
+  def CAS8  : MxCASOp<0x1, MxType8d>;   // Encoding: 0b01
+  def CAS16 : MxCASOp<0x2, MxType16d>;  // Encoding: 0b10
+  def CAS32 : MxCASOp<0x3, MxType32d>;  // Encoding: 0b11
+}
 
 // Pattern matching for atomic compare-swap
 foreach size = [8, 16, 32] in {
