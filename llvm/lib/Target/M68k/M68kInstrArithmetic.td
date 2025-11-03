@@ -66,7 +66,7 @@ let Constraints = "$src = $dst" in {
 
 // $reg, $ccr <- $reg op $reg
 class MxBiArOp_R_RR_xEA<string MN, SDNode NODE, MxType DST_TYPE, MxType SRC_TYPE,
-                        bits<4> CMD>
+                        bits<4> CMD, list<SchedWrite> sched = []>
     : MxInst<(outs DST_TYPE.ROp:$dst), (ins DST_TYPE.ROp:$src, SRC_TYPE.ROp:$opd),
              MN#"."#DST_TYPE.Prefix#"\t$opd, $dst",
              [(set DST_TYPE.VT:$dst, CCR, (NODE DST_TYPE.VT:$src, SRC_TYPE.VT:$opd))]> {
@@ -78,6 +78,7 @@ class MxBiArOp_R_RR_xEA<string MN, SDNode NODE, MxType DST_TYPE, MxType SRC_TYPE
       !eq(SRC_TYPE.RLet, "d") : (descend 0b000, (operand "$opd", 3))
     )
   );
+  let SchedRW = sched;
 }
 
 /// This Op is similar to the one above except it uses reversed opmode, some
@@ -86,7 +87,8 @@ class MxBiArOp_R_RR_xEA<string MN, SDNode NODE, MxType DST_TYPE, MxType SRC_TYPE
 /// NOTE when using dd commands it is irrelevant which opmode to use(as it seems)
 /// but some opcodes support address register and some do not which creates this
 /// mess.
-class MxBiArOp_R_RR_EAd<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
+class MxBiArOp_R_RR_EAd<string MN, SDNode NODE, MxType TYPE, bits<4> CMD,
+                        list<SchedWrite> sched = []>
     : MxInst<(outs TYPE.ROp:$dst), (ins TYPE.ROp:$src, TYPE.ROp:$opd),
              MN#"."#TYPE.Prefix#"\t$opd, $dst",
              [(set TYPE.VT:$dst, CCR, (NODE TYPE.VT:$src, TYPE.VT:$opd))]> {
@@ -96,11 +98,12 @@ class MxBiArOp_R_RR_EAd<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
     /*Destination can only be a data register*/
     /*MODE*/0b000,
     /*REGISTER*/(operand "$dst", 3));
+  let SchedRW = sched;
 }
 
 let mayLoad = 1 in
 class MxBiArOp_R_RM<string MN, SDNode NODE, MxType TYPE, MxOperand OPD, ComplexPattern PAT,
-                    bits<4> CMD, MxEncMemOp SRC_ENC>
+                    bits<4> CMD, MxEncMemOp SRC_ENC, list<SchedWrite> sched = []>
     : MxInst<(outs TYPE.ROp:$dst), (ins TYPE.ROp:$src, OPD:$opd),
              MN#"."#TYPE.Prefix#"\t$opd, $dst",
              [(set TYPE.VT:$dst, CCR, (NODE TYPE.VT:$src, (TYPE.Load PAT:$opd)))]> {
@@ -110,6 +113,7 @@ class MxBiArOp_R_RM<string MN, SDNode NODE, MxType TYPE, MxOperand OPD, ComplexP
              SRC_ENC.EA),
     SRC_ENC.Supplement
   );
+  let SchedRW = sched;
 }
 
 /// Encoding for Immediate forms
@@ -127,7 +131,8 @@ class MxBiArOp_R_RM<string MN, SDNode NODE, MxType TYPE, MxOperand OPD, ComplexP
 /// normal version
 
 // $reg <- $reg op $imm
-class MxBiArOp_R_RI_xEA<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
+class MxBiArOp_R_RI_xEA<string MN, SDNode NODE, MxType TYPE, bits<4> CMD,
+                        list<SchedWrite> sched = []>
     : MxInst<(outs TYPE.ROp:$dst), (ins TYPE.ROp:$src, TYPE.IOp:$opd),
              MN#"."#TYPE.Prefix#"\t$opd, $dst",
              [(set TYPE.VT:$dst, CCR, (NODE TYPE.VT:$src, TYPE.IPat:$opd))]> {
@@ -137,12 +142,14 @@ class MxBiArOp_R_RI_xEA<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
              MxEncAddrMode_i<"opd", TYPE.Size>.EA),
     MxEncAddrMode_i<"opd", TYPE.Size>.Supplement
   );
+  let SchedRW = sched;
 }
 
 // Again, there are two ways to write an immediate to Dn register either dEA
 // opmode or using *I encoding, and again some instructions also support address
 // registers some do not.
-class MxBiArOp_R_RI<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
+class MxBiArOp_R_RI<string MN, SDNode NODE, MxType TYPE, bits<4> CMD,
+                    list<SchedWrite> sched = []>
     : MxInst<(outs TYPE.ROp:$dst), (ins TYPE.ROp:$src, TYPE.IOp:$opd),
              MN#"i."#TYPE.Prefix#"\t$opd, $dst",
              [(set TYPE.VT:$dst, CCR, (NODE TYPE.VT:$src, TYPE.IPat:$opd))]> {
@@ -156,6 +163,7 @@ class MxBiArOp_R_RI<string MN, SDNode NODE, MxType TYPE, bits<4> CMD>
     // Source (i.e. immediate value) encoding
     MxEncAddrMode_i<"opd", TYPE.Size>.Supplement
   );
+  let SchedRW = sched;
 }
 } // Constraints
 
@@ -164,7 +172,8 @@ let mayLoad = 1, mayStore = 1 in {
 // FIXME MxBiArOp_FMR/FMI cannot consume CCR from MxAdd/MxSub which leads for
 // MxAdd to survive the match and subsequent mismatch.
 class MxBiArOp_MR<string MN, MxType TYPE,
-                  MxOperand MEMOpd, bits<4> CMD, MxEncMemOp DST_ENC>
+                  MxOperand MEMOpd, bits<4> CMD, MxEncMemOp DST_ENC,
+                  list<SchedWrite> sched = []>
     : MxInst<(outs), (ins MEMOpd:$dst, TYPE.ROp:$opd),
              MN#"."#TYPE.Prefix#"\t$opd, $dst", []> {
   let Inst = (ascend
@@ -173,12 +182,15 @@ class MxBiArOp_MR<string MN, MxType TYPE,
              DST_ENC.EA),
     DST_ENC.Supplement
   );
+  let SchedRW = sched;
 }
 
 class MxBiArOp_MI<string MN, MxType TYPE,
-                  MxOperand MEMOpd, bits<4> CMD, MxEncMemOp DST_ENC>
+                  MxOperand MEMOpd, bits<4> CMD, MxEncMemOp DST_ENC,
+                  list<SchedWrite> sched = []>
     : MxInst<(outs), (ins MEMOpd:$dst, TYPE.IOp:$opd),
              MN#"."#TYPE.Prefix#"\t$opd, $dst", []> {
+  let SchedRW = sched;
   let Inst = (ascend
     (descend 0b0000, CMD,
              !cast<MxEncSize>("MxEncSize"#TYPE.Size).Value,
@@ -193,7 +205,12 @@ class MxBiArOp_MI<string MN, MxType TYPE,
 } // Defs = [CCR]
 
 multiclass MxBiArOp_DF<string MN, SDNode NODE, bit isComm,
-                       bits<4> CMD, bits<4> CMDI> {
+                       bits<4> CMD, bits<4> CMDI,
+                       SchedWrite SchedRR = WriteALU_RR,
+                       SchedWrite SchedRI = WriteALU_RI,
+                       SchedWrite SchedRM = WriteALU_RM,
+                       SchedWrite SchedMR = WriteALU_MR,
+                       SchedWrite SchedMI = WriteALU_MI> {
 
   foreach SZ = [8, 16, 32] in {
     // op $mem, $reg
@@ -201,78 +218,78 @@ multiclass MxBiArOp_DF<string MN, SDNode NODE, bit isComm,
                                       !cast<MxType>("MxType"#SZ#"d"),
                                       !cast<MxType>("MxType"#SZ).KOp,
                                       !cast<MxType>("MxType"#SZ).KPat,
-                                      CMD, MxEncAddrMode_k<"opd">>;
+                                      CMD, MxEncAddrMode_k<"opd">, [SchedRM]>;
 
     def NAME#SZ#"dq"  : MxBiArOp_R_RM<MN, NODE,
                                       !cast<MxType>("MxType"#SZ#"d"),
                                       !cast<MxType>("MxType"#SZ).QOp,
                                       !cast<MxType>("MxType"#SZ).QPat,
-                                      CMD, MxEncAddrMode_q<"opd">>;
+                                      CMD, MxEncAddrMode_q<"opd">, [SchedRM]>;
 
     def NAME#SZ#"dp"  : MxBiArOp_R_RM<MN, NODE,
                                       !cast<MxType>("MxType"#SZ#"d"),
                                       !cast<MxType>("MxType"#SZ).POp,
                                       !cast<MxType>("MxType"#SZ).PPat,
-                                      CMD, MxEncAddrMode_p<"opd">>;
+                                      CMD, MxEncAddrMode_p<"opd">, [SchedRM]>;
 
     def NAME#SZ#"df"  : MxBiArOp_R_RM<MN, NODE,
                                       !cast<MxType>("MxType"#SZ#"d"),
                                       !cast<MxType>("MxType"#SZ).FOp,
                                       !cast<MxType>("MxType"#SZ).FPat,
-                                      CMD, MxEncAddrMode_f<"opd">>;
+                                      CMD, MxEncAddrMode_f<"opd">, [SchedRM]>;
 
     def NAME#SZ#"dj"  : MxBiArOp_R_RM<MN, NODE,
                                       !cast<MxType>("MxType"#SZ#"d"),
                                       !cast<MxType>("MxType"#SZ).JOp,
                                       !cast<MxType>("MxType"#SZ).JPat,
-                                      CMD, MxEncAddrMode_j<"opd">>;
+                                      CMD, MxEncAddrMode_j<"opd">, [SchedRM]>;
     // op $imm, $reg
     def NAME#SZ#"di"  : MxBiArOp_R_RI_xEA<MN, NODE,
                                           !cast<MxType>("MxType"#SZ#"d"),
-                                          CMD>;
+                                          CMD, [SchedRI]>;
     // op $reg, $mem
     def NAME#SZ#"pd"  : MxBiArOp_MR<MN,
                                     !cast<MxType>("MxType"#SZ#"d"),
                                     !cast<MxType>("MxType"#SZ).POp,
-                                    CMD, MxEncAddrMode_p<"dst">>;
+                                    CMD, MxEncAddrMode_p<"dst">, [SchedMR]>;
 
     def NAME#SZ#"fd"  : MxBiArOp_MR<MN,
                                     !cast<MxType>("MxType"#SZ#"d"),
                                     !cast<MxType>("MxType"#SZ).FOp,
-                                    CMD, MxEncAddrMode_f<"dst">>;
+                                    CMD, MxEncAddrMode_f<"dst">, [SchedMR]>;
 
     def NAME#SZ#"jd"  : MxBiArOp_MR<MN,
                                     !cast<MxType>("MxType"#SZ#"d"),
                                     !cast<MxType>("MxType"#SZ).JOp,
-                                    CMD, MxEncAddrMode_j<"dst">>;
+                                    CMD, MxEncAddrMode_j<"dst">, [SchedMR]>;
     // op $imm, $mem
     def NAME#SZ#"pi"  : MxBiArOp_MI<MN,
                                     !cast<MxType>("MxType"#SZ),
                                     !cast<MxType>("MxType"#SZ).POp,
-                                    CMDI, MxEncAddrMode_p<"dst">>;
+                                    CMDI, MxEncAddrMode_p<"dst">, [SchedMI]>;
 
     def NAME#SZ#"fi"  : MxBiArOp_MI<MN,
                                     !cast<MxType>("MxType"#SZ),
                                     !cast<MxType>("MxType"#SZ).FOp,
-                                    CMDI, MxEncAddrMode_f<"dst">>;
+                                    CMDI, MxEncAddrMode_f<"dst">, [SchedMI]>;
 
     def NAME#SZ#"ji"  : MxBiArOp_MI<MN,
                                     !cast<MxType>("MxType"#SZ),
                                     !cast<MxType>("MxType"#SZ).JOp,
-                                    CMDI, MxEncAddrMode_j<"dst">>;
+                                    CMDI, MxEncAddrMode_j<"dst">, [SchedMI]>;
     // op $reg, $reg
     let isCommutable = isComm in
     def NAME#SZ#"dd" : MxBiArOp_R_RR_xEA<MN, NODE,
                                          !cast<MxType>("MxType"#SZ#"d"),
                                          !cast<MxType>("MxType"#SZ#"d"),
-                                         CMD>;
+                                         CMD, [SchedRR]>;
   } // foreach SZ
 
   foreach SZ = [16, 32] in
   def NAME#SZ#"dr" : MxBiArOp_R_RR_xEA<MN, NODE,
                                        !cast<MxType>("MxType"#SZ#"d"),
                                        !cast<MxType>("MxType"#SZ#"r"),
-                                       CMD>;
+                                       CMD, [SchedRR]>;
 
 } // MxBiArOp_DF
 
@@ -281,23 +298,26 @@ multiclass MxBiArOp_DF<string MN, SDNode NODE, bit isComm,
 // operations do not produce CCR we should not match them against Mx nodes that
 // produce it.
 let Pattern = [(null_frag)] in
-multiclass MxBiArOp_AF<string MN, SDNode NODE, bits<4> CMD> {
+multiclass MxBiArOp_AF<string MN, SDNode NODE, bits<4> CMD,
+                       SchedWrite SchedRR = WriteALU_RR,
+                       SchedWrite SchedRI = WriteALU_RI,
+                       SchedWrite SchedRM = WriteALU_RM> {
 
   def NAME#"32ak" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.KOp, MxType32.KPat,
-                                  CMD, MxEncAddrMode_k<"opd">>;
+                                  CMD, MxEncAddrMode_k<"opd">, [SchedRM]>;
   def NAME#"32aq" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.QOp, MxType32.QPat,
-                                  CMD, MxEncAddrMode_q<"opd">>;
+                                  CMD, MxEncAddrMode_q<"opd">, [SchedRM]>;
   def NAME#"32af" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.FOp, MxType32.FPat,
-                                  CMD, MxEncAddrMode_f<"opd">>;
+                                  CMD, MxEncAddrMode_f<"opd">, [SchedRM]>;
   def NAME#"32ap" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.POp, MxType32.PPat,
-                                  CMD, MxEncAddrMode_p<"opd">>;
+                                  CMD, MxEncAddrMode_p<"opd">, [SchedRM]>;
   def NAME#"32aj" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.JOp, MxType32.JPat,
-                                  CMD, MxEncAddrMode_j<"opd">>;
+                                  CMD, MxEncAddrMode_j<"opd">, [SchedRM]>;
   def NAME#"32ab" : MxBiArOp_R_RM<MN, NODE, MxType32a, MxType32.BOp, MxType32.BPat,
-                                  CMD, MxEncAddrMode_abs<"opd", true>>;
-  def NAME#"32ai" : MxBiArOp_R_RI_xEA<MN, NODE, MxType32a, CMD>;
+                                  CMD, MxEncAddrMode_abs<"opd", true>, [SchedRM]>;
+  def NAME#"32ai" : MxBiArOp_R_RI_xEA<MN, NODE, MxType32a, CMD, [SchedRI]>;
 
-  def NAME#"32ar" : MxBiArOp_R_RR_xEA<MN, NODE, MxType32a, MxType32r, CMD>;
+  def NAME#"32ar" : MxBiArOp_R_RR_xEA<MN, NODE, MxType32a, MxType32r, CMD, [SchedRR]>;
 
 } // MxBiArOp_AF
 
@@ -395,7 +415,8 @@ defm XOR : MxBiArOp_DF_EAd<"eor", MxXor, 0xB, 0xA>;
 //===----------------------------------------------------------------------===//
 
 let Defs = [CCR] in {
-class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
+class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE,
+               list<SchedWrite> sched = [WriteALU_RR]>
     : MxInst<(outs), (ins LHS_TYPE.ROp:$lhs, RHS_TYPE.ROp:$rhs),
              "cmp."#RHS_TYPE.Prefix#"\t$lhs, $rhs",
              [(set CCR, (MxCmp LHS_TYPE.VT:$lhs, RHS_TYPE.VT:$rhs))]> {
@@ -409,9 +430,10 @@ class MxCmp_RR<MxType LHS_TYPE, MxType RHS_TYPE = LHS_TYPE>
     // REGISTER prefixed by D/A bit
     (operand "$lhs", 4)
   );
+  let SchedRW = sched;
 }
 
-class MxCmp_RI<MxType TYPE>
+class MxCmp_RI<MxType TYPE, list<SchedWrite> sched = [WriteALU_RI]>
     : MxInst<(outs), (ins TYPE.IOp:$imm, TYPE.ROp:$reg),
              "cmpi."#TYPE.Prefix#"\t$imm, $reg",
              [(set CCR, (MxCmp TYPE.IPat:$imm, TYPE.VT:$reg))]> {
@@ -425,12 +447,13 @@ class MxCmp_RI<MxType TYPE>
     // Source (i.e. immediate value) encoding
     MxEncAddrMode_i<"imm", TYPE.Size>.Supplement
   );
+  let SchedRW = sched;
 }
 
 let mayLoad = 1 in {
 
 class MxCmp_MI<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
-               MxEncMemOp MEM_ENC>
+               MxEncMemOp MEM_ENC, list<SchedWrite> sched = [WriteALU_MI]>
     : MxInst<(outs), (ins TYPE.IOp:$imm, MEMOpd:$mem),
              "cmpi."#TYPE.Prefix#"\t$imm, $mem",
              [(set CCR, (MxCmp TYPE.IPat:$imm, (load MEMPat:$mem)))]> {
@@ -443,10 +466,11 @@ class MxCmp_MI<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
     // Destination (i.e. memory operand) encoding
     MEM_ENC.Supplement
   );
+  let SchedRW = sched;
 }
 
 // FIXME: What about abs.W?
-class MxCmp_BI<MxType TYPE>
+class MxCmp_BI<MxType TYPE, list<SchedWrite> sched = [WriteALU_MI]>
     : MxInst<(outs), (ins TYPE.IOp:$imm, MxAL32:$abs),
              "cmpi."#TYPE.Prefix#"\t$imm, $abs",
              [(set CCR, (MxCmp TYPE.IPat:$imm,
@@ -461,10 +485,11 @@ class MxCmp_BI<MxType TYPE>
     // Destination (i.e. memory operand) encoding
     AbsEncoding.Supplement
   );
+  let SchedRW = sched;
 }
 
 class MxCmp_RM<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
-               MxEncMemOp MEM_ENC>
+               MxEncMemOp MEM_ENC, list<SchedWrite> sched = [WriteALU_RM]>
     : MxInst<(outs), (ins TYPE.ROp:$reg, MEMOpd:$mem),
              "cmp."#TYPE.Prefix#"\t$mem, $reg",
              [(set CCR, (MxCmp (load MEMPat:$mem), TYPE.ROp:$reg))]> {
@@ -477,6 +502,7 @@ class MxCmp_RM<MxType TYPE, MxOperand MEMOpd, ComplexPattern MEMPat,
       MEM_ENC.EA),
     MEM_ENC.Supplement
   );
+  let SchedRW = sched;
 }
 } // let mayLoad = 1
 
@@ -579,7 +605,7 @@ let Defs = [CCR] in {
 let Constraints = "$src = $dst" in {
 // $dreg <- $dreg op $dreg
 class MxDiMuOp_DD<string MN, bits<4> CMD, bit SIGNED = false,
-                  MxOperand DST, MxOperand OPD>
+                  MxOperand DST, MxOperand OPD, list<SchedWrite> sched = [WriteMUL16]>
     : MxInst<(outs DST:$dst), (ins DST:$src, OPD:$opd), MN#"\t$opd, $dst", []> {
   let Inst = (descend CMD,
     // REGISTER
@@ -587,10 +613,12 @@ class MxDiMuOp_DD<string MN, bits<4> CMD, bit SIGNED = false,
     !if(SIGNED, 0b111, 0b011),
     /*MODE*/0b000, /*REGISTER*/(operand "$opd", 3)
   );
+  let SchedRW = sched;
 }
 
 // $dreg <- $dreg op $dreg
-class MxDiMuOp_DD_Long<string MN, SDNode NODE, bits<10> CMD, bit SIGNED = false>
+class MxDiMuOp_DD_Long<string MN, SDNode NODE, bits<10> CMD, bit SIGNED = false,
+                       list<SchedWrite> sched = [WriteMUL32]>
     : MxInst<(outs MxDRD32:$dst), (ins MxDRD32:$src, MxDRD32:$opd), MN#"\t$opd, $dst",
              [(set i32:$dst, CCR, (NODE i32:$src, i32:$opd))]> {
   let Inst = (ascend
@@ -604,11 +632,12 @@ class MxDiMuOp_DD_Long<string MN, SDNode NODE, bits<10> CMD, bit SIGNED = false>
       // Dr REGISTER
       0b000)
   );
+  let SchedRW = sched;
 }
 
 // $reg <- $reg op $imm
 class MxDiMuOp_DI<string MN, bits<4> CMD, bit SIGNED = false,
-                  MxOperand DST, MxOperand OPD>
+                  MxOperand DST, MxOperand OPD, list<SchedWrite> sched = [WriteMUL16]>
     : MxInst<(outs DST:$dst), (ins DST:$src, OPD:$opd), MN#"\t$opd, $dst", []> {
   // FIXME: Support immediates with different widths.
   defvar ImmEnc = MxEncAddrMode_i<"opd", 16>;
@@ -619,22 +648,23 @@ class MxDiMuOp_DI<string MN, bits<4> CMD, bit SIGNED = false,
       !if(SIGNED, 0b111, 0b011), ImmEnc.EA),
     ImmEnc.Supplement
   );
+  let SchedRW = sched;
 }
 } // let Constraints
 } // Defs = [CCR]
 
-multiclass MxDiMuOp<string MN, bits<4> CMD> {
-  def "S"#NAME#"d32d16" : MxDiMuOp_DD<MN#"s", CMD, /*SIGNED*/true, MxDRD32, MxDRD16>;
-  def "U"#NAME#"d32d16" : MxDiMuOp_DD<MN#"u", CMD, /*SIGNED*/false, MxDRD32, MxDRD16>;
+multiclass MxDiMuOp<string MN, bits<4> CMD, SchedWrite SchedRR = WriteMUL16, SchedWrite SchedRI = WriteMUL16> {
+  def "S"#NAME#"d32d16" : MxDiMuOp_DD<MN#"s", CMD, /*SIGNED*/true, MxDRD32, MxDRD16, [SchedRR]>;
+  def "U"#NAME#"d32d16" : MxDiMuOp_DD<MN#"u", CMD, /*SIGNED*/false, MxDRD32, MxDRD16, [SchedRR]>;
 
-  def "S"#NAME#"d32i16" : MxDiMuOp_DI<MN#"s", CMD, /*SIGNED*/true, MxDRD32, Mxi16imm>;
-  def "U"#NAME#"d32i16" : MxDiMuOp_DI<MN#"u", CMD, /*SIGNED*/false, MxDRD32, Mxi16imm>;
+  def "S"#NAME#"d32i16" : MxDiMuOp_DI<MN#"s", CMD, /*SIGNED*/true, MxDRD32, Mxi16imm, [SchedRI]>;
+  def "U"#NAME#"d32i16" : MxDiMuOp_DI<MN#"u", CMD, /*SIGNED*/false, MxDRD32, Mxi16imm, [SchedRI]>;
 }
 
-defm DIV : MxDiMuOp<"div", 0x8>;
+defm DIV : MxDiMuOp<"div", 0x8, WriteDIV16, WriteDIV16>;
 
-def SDIVd32d32 : MxDiMuOp_DD_Long<"divs.l", sdiv, 0x131, /*SIGNED*/true>;
-def UDIVd32d32 : MxDiMuOp_DD_Long<"divu.l", udiv, 0x131, /*SIGNED*/false>;
+def SDIVd32d32 : MxDiMuOp_DD_Long<"divs.l", sdiv, 0x131, /*SIGNED*/true, [WriteDIV32]>;
+def UDIVd32d32 : MxDiMuOp_DD_Long<"divu.l", udiv, 0x131, /*SIGNED*/false, [WriteDIV32]>;
 
 // This is used to cast immediates to 16-bits for operations which don't
 // support smaller immediate sizes.
@@ -727,10 +757,10 @@ def : Pat<(urem i16:$dst, Mxi16immSExt16:$opd),
              MxSubRegIndex16Lo)>;
 
 
-defm MUL : MxDiMuOp<"mul", 0xC>;
+defm MUL : MxDiMuOp<"mul", 0xC, WriteMUL16, WriteMUL16>;
 
-def SMULd32d32 : MxDiMuOp_DD_Long<"muls.l", MxSMul, 0x130, /*SIGNED*/true>;
-def UMULd32d32 : MxDiMuOp_DD_Long<"mulu.l", MxUMul, 0x130, /*SIGNED*/false>;
+def SMULd32d32 : MxDiMuOp_DD_Long<"muls.l", MxSMul, 0x130, /*SIGNED*/true, [WriteMUL32]>;
+def UMULd32d32 : MxDiMuOp_DD_Long<"mulu.l", MxUMul, 0x130, /*SIGNED*/false, [WriteMUL32]>;
 
 // RR
 def : Pat<(mul i16:$dst, i16:$opd),

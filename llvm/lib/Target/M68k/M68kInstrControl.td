@@ -45,6 +45,7 @@
 let hasSideEffects = 0 in {
   def NOP : MxInst<(outs), (ins), "nop", []> {
     let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0001);
+    let SchedRW = [WriteALU_RR];  // NOP is essentially a no-op ALU operation
   }
 }
 
@@ -93,15 +94,17 @@ def MxCCle : MxEncCondOp<0b1111>;
 /// ----------------------------------------------------
 
 let Uses = [CCR] in {
-class MxSccR<string CC>
+class MxSccR<string CC, list<SchedWrite> sched = [WriteALU_RR]>
     : MxInst<(outs MxDRD8:$dst), (ins), "s"#CC#"\t$dst",
              [(set i8:$dst, (MxSetCC !cast<PatLeaf>("MxCOND"#CC), CCR))]> {
   let Inst = (descend 0b0101, !cast<MxEncCondOp>("MxCC"#CC).Value, 0b11,
               /*MODE without last bit*/0b00,
               /*REGISTER prefixed with D/A bit*/(operand "$dst", 4));
+  let SchedRW = sched;
 }
 
-class MxSccM<string CC, MxOperand MEMOpd, ComplexPattern MEMPat, MxEncMemOp DST_ENC>
+class MxSccM<string CC, MxOperand MEMOpd, ComplexPattern MEMPat, MxEncMemOp DST_ENC,
+             list<SchedWrite> sched = [WriteALU_MR]>
     : MxInst<(outs), (ins MEMOpd:$dst), "s"#CC#"\t$dst",
              [(store (MxSetCC !cast<PatLeaf>("MxCOND"#CC), CCR), MEMPat:$dst)]> {
   let Inst =
@@ -109,6 +112,7 @@ class MxSccM<string CC, MxOperand MEMOpd, ComplexPattern MEMPat, MxEncMemOp DST_
       (descend 0b0101, !cast<MxEncCondOp>("MxCC"#CC).Value, 0b11, DST_ENC.EA),
       DST_ENC.Supplement
     );
+  let SchedRW = sched;
 }
 }
 
@@ -129,13 +133,14 @@ def SET#"p8"#cc : MxSccM<cc, MxType8.POp, MxType8.PPat, MxEncAddrMode_p<"dst">>;
 /// 0  1  0  0  1  1  1  0  1  1 |  MODE   |   REG
 ///------------------------------+---------+---------
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in
-class MxJMP<MxOperand LOCOp, MxEncMemOp DST_ENC>
+class MxJMP<MxOperand LOCOp, MxEncMemOp DST_ENC, list<SchedWrite> sched = [WriteJMP]>
     : MxInst<(outs), (ins LOCOp:$dst), "jmp\t$dst", [(brind iPTR:$dst)]> {
   let Inst =
     (ascend
       (descend 0b0100, 0b1110, 0b11, DST_ENC.EA),
       DST_ENC.Supplement
     );
+  let SchedRW = sched;
 }
 
 def JMP32j : MxJMP<MxARI32, MxEncAddrMode_j<"dst">>;
@@ -161,7 +166,8 @@ def JMP32j : MxJMP<MxARI32, MxEncAddrMode_j<"dst">>;
 ///  32-BIT DISPLACEMENT IF 8-BIT DISPLACEMENT = $FF
 /// --------------------------------------------------
 let isBranch = 1, isTerminator = 1, Uses = [CCR] in
-class MxBcc<string cc, Operand TARGET, dag disp_8, dag disp_16_32>
+class MxBcc<string cc, Operand TARGET, dag disp_8, dag disp_16_32,
+            list<SchedWrite> sched = [WriteBR]>
     : MxInst<(outs), (ins TARGET:$dst), "b"#cc#"\t$dst", []> {
   // FIXME: If we want to avoid supplying disp_16_32 with empty
   //        (ascend) for 16/32 bits variants, we can use conditional
@@ -179,6 +185,7 @@ class MxBcc<string cc, Operand TARGET, dag disp_8, dag disp_16_32>
         (descend 0b0110, !cast<MxEncCondOp>("MxCC"#cc).Value, disp_8),
         disp_16_32
       );
+  let SchedRW = sched;
 }
 
 foreach cc = [ "cc", "ls", "lt", "eq", "mi", "ne", "ge",
@@ -208,13 +215,15 @@ def : Pat<(MxBrCond bb:$target, !cast<PatLeaf>("MxCOND"#cc), CCR),
 ///  32-BIT DISPLACEMENT IF 8-BIT DISPLACEMENT = $FF
 /// -------------------------------------------------
 let isBranch = 1, isTerminator = 1, isBarrier = 1 in
-class MxBra<Operand TARGET, dag disp_8, dag disp_16_32>
+class MxBra<Operand TARGET, dag disp_8, dag disp_16_32,
+            list<SchedWrite> sched = [WriteBR]>
     : MxInst<(outs), (ins TARGET:$dst), "bra\t$dst", []> {
   let Inst =
     (ascend
       (descend 0b0110, 0b0000, disp_8),
       disp_16_32
     );
+  let SchedRW = sched;
 }
 
 def BRA8  : MxBra<MxBrTarget8,
@@ -236,12 +245,14 @@ def : Pat<(br bb:$target), (BRA8 MxBrTarget8:$target)>;
 /// -------------------------------------------------
 
 let isBranch = 1, isTerminator = 1 in
-class MxBsr<Operand TARGET, MxType TYPE, dag disp_8, dag disp_16_32>
+class MxBsr<Operand TARGET, MxType TYPE, dag disp_8, dag disp_16_32,
+            list<SchedWrite> sched = [WriteJMP]>
     : MxInst<(outs), (ins TARGET:$dst), "bsr."#TYPE.Prefix#"\t$dst"> {
   let Inst = (ascend
                 (descend 0b0110, 0b0001, disp_8),
                  disp_16_32
               );
+  let SchedRW = sched;
 }
 
 def BSR8 : MxBsr<MxBrTarget8, MxType8,
@@ -269,13 +280,14 @@ let isCall = 1 in
 ///------------------------------+---------+---------
 /// 0  1  0  0  1  1  1  0  1  0 |  MODE   |   REG
 ///------------------------------+---------+---------
-class MxCall<MxOperand LOCOp, MxEncMemOp DST_ENC>
+class MxCall<MxOperand LOCOp, MxEncMemOp DST_ENC, list<SchedWrite> sched = [WriteJMP]>
     : MxInst<(outs), (ins LOCOp:$dst), "jsr\t$dst", []> {
   let Inst =
     (ascend
       (descend 0b0100, 0b1110, 0b10, DST_ENC.EA),
       DST_ENC.Supplement
     );
+  let SchedRW = sched;
 }
 
 def CALLk : MxCall<MxPCI32, MxEncAddrMode_k<"dst">>;
@@ -305,14 +317,22 @@ let Uses = [SP] in {
 let isCall = 1, isTerminator = 1, isBarrier = 1 in {
 
 let isReturn = 1 in
-def TCRETURNq : MxPseudo<(outs), (ins MxPCD32:$dst,    i32imm:$adj)>;
-def TAILJMPq  : MxPseudo<(outs), (ins MxPCD32:$dst)>;
+def TCRETURNq : MxPseudo<(outs), (ins MxPCD32:$dst,    i32imm:$adj)> {
+  let SchedRW = [WriteRET];
+}
+def TAILJMPq  : MxPseudo<(outs), (ins MxPCD32:$dst)> {
+  let SchedRW = [WriteJMP];
+}
 
 // NOTE j does not mean load and jump M68k jmp just calculates EA and jumps
 // and it is using Mem form like (An) thus j letter.
 let isReturn = 1 in
-def TCRETURNj : MxPseudo<(outs), (ins MxARI32_TC:$dst, i32imm:$adj)>;
-def TAILJMPj  : MxPseudo<(outs), (ins MxARI32_TC:$dst)>;
+def TCRETURNj : MxPseudo<(outs), (ins MxARI32_TC:$dst, i32imm:$adj)> {
+  let SchedRW = [WriteRET];
+}
+def TAILJMPj  : MxPseudo<(outs), (ins MxARI32_TC:$dst)> {
+  let SchedRW = [WriteJMP];
+}
 } // isCall = 1, isTerminator = 1, isBarrier = 1
 } // Uses = [SP]
 } // isCodeGenOnly = 1
@@ -325,15 +345,19 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1, hasCtrlDep = 1 in {
 
 def RTS : MxInst<(outs), (ins), "rts", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0101);
+  let SchedRW = [WriteRET];
 }
 
 def RTE: MxInst<(outs), (ins), "rte", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0011);
+  let SchedRW = [WriteRET];
 }
 
 let isCodeGenOnly = 1 in
 def RET : MxPseudo<(outs), (ins i32imm:$adj, variable_ops),
-                   [(MxRet timm:$adj)]>;
+                   [(MxRet timm:$adj)]> {
+  let SchedRW = [WriteRET];
+}
 } // isTerminator = 1, isReturn = 1, isBarrier = 1, hasCtrlDep = 1
 
 //===----------------------------------------------------------------------===//
@@ -346,11 +370,17 @@ let Uses = [CCR], Defs = [CCR], isPseudo = 1 in {
 // However, Pat<> can't replicate the destination reg into the inputs of the
 // result.
 def SETCS_C8d : MxPseudo<(outs MxDRD8:$dst), (ins),
-                         [(set MxDRD8:$dst, (MxSetCC_C MxCONDcs, CCR))]>;
+                         [(set MxDRD8:$dst, (MxSetCC_C MxCONDcs, CCR))]> {
+  let SchedRW = [WriteALU_RR];
+}
 def SETCS_C16d : MxPseudo<(outs MxDRD16:$dst), (ins),
-                          [(set MxDRD16:$dst, (MxSetCC_C MxCONDcs, CCR))]>;
+                          [(set MxDRD16:$dst, (MxSetCC_C MxCONDcs, CCR))]> {
+  let SchedRW = [WriteALU_RR];
+}
 def SETCS_C32d : MxPseudo<(outs MxXRD32:$dst), (ins),
-                          [(set MxXRD32:$dst, (MxSetCC_C MxCONDcs, CCR))]>;
+                          [(set MxXRD32:$dst, (MxSetCC_C MxCONDcs, CCR))]> {
+  let SchedRW = [WriteALU_RR];
+}
 } // Uses = [CCR], Defs = [CCR], isPseudo = 1
 
 
@@ -408,16 +438,20 @@ def MxBkptimm : MxOp<i8,  MxSize8,  "i">;
 
 def TRAP : MxInst<(outs), (ins MxTrapimm:$vect), "trap\t$vect", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0100, (operand "$vect", 4));
+  let SchedRW = [WriteJMP];  // TRAP is a system call (similar cost to JSR)
 }
 
 def TRAPV : MxInst<(outs), (ins), "trapv", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0110);
+  let SchedRW = [WriteJMP];  // Conditional trap (similar cost to JSR if taken)
 }
 
 def BKPT : MxInst<(outs), (ins MxBkptimm:$vect), "bkpt\t$vect", []> {
   let Inst = (descend 0b0100, 0b1000, 0b0100, 0b1 , (operand "$vect", 3));
+  let SchedRW = [WriteJMP];  // Breakpoint trap
 }
 
 def ILLEGAL : MxInst<(outs), (ins), "illegal", []> {
   let Inst = (descend 0b0100, 0b1010, 0b1111, 0b1100);
+  let SchedRW = [WriteJMP];  // Illegal instruction trap
 }

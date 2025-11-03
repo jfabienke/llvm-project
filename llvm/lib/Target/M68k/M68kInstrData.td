@@ -103,19 +103,22 @@ defm Dst : MxMoveOperandEncodings<"dst">;
 defvar MxMoveSupportedAMs = ["o", "e", "k", "q", "f", "p", "b", "j"];
 
 let Defs = [CCR] in
-class MxMove<string size, dag outs, dag ins, list<dag> pattern, MxMoveEncoding enc>
+class MxMove<string size, dag outs, dag ins, list<dag> pattern, MxMoveEncoding enc,
+             list<SchedWrite> sched = []>
     : MxInst<outs, ins, "move."#size#"\t$src, $dst", pattern> {
   let Inst = enc.Value;
+  let SchedRW = sched;
 }
 
 // R <- R
 class MxMove_RR<MxType TYPE, string DST_REG, string SRC_REG,
                 MxMoveEncoding ENC,
                 MxOpBundle DST = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#DST_REG),
-                MxOpBundle SRC = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#SRC_REG)>
+                MxOpBundle SRC = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#SRC_REG),
+                list<SchedWrite> sched = [WriteMOV_RR]>
     : MxMove<TYPE.Prefix,
              (outs DST.Op:$dst), (ins SRC.Op:$src),
-             [(null_frag)], ENC>;
+             [(null_frag)], ENC, sched>;
 
 foreach DST_REG = ["r", "a"] in {
   foreach SRC_REG = ["r", "a"] in
@@ -135,14 +138,16 @@ def MOV # TYPE.Size # dd # TYPE.Postfix
 // M <- R
 let mayStore = 1 in {
 class MxMove_MR<MxType TYPE, MxOpBundle DST, string SRC_REG, MxMoveEncoding ENC,
-                MxOpBundle SRC = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#SRC_REG)>
+                MxOpBundle SRC = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#SRC_REG),
+                list<SchedWrite> sched = [WriteMOV_RM]>
     : MxMove<TYPE.Prefix, (outs), (ins DST.Op:$dst, SRC.Op:$src),
-             [(store TYPE.VT:$src, DST.Pat:$dst)], ENC>;
+             [(store TYPE.VT:$src, DST.Pat:$dst)], ENC, sched>;
 
 class MxMove_MI<MxType TYPE, MxOpBundle DST, MxMoveEncoding ENC,
-                MxImmOpBundle SRC = !cast<MxImmOpBundle>("MxOp"#TYPE.Size#"AddrMode_i")>
+                MxImmOpBundle SRC = !cast<MxImmOpBundle>("MxOp"#TYPE.Size#"AddrMode_i"),
+                list<SchedWrite> sched = [WriteMOV_RM]>
     : MxMove<TYPE.Prefix, (outs), (ins DST.Op:$dst, SRC.Op:$src),
-             [(store SRC.ImmPat:$src, DST.Pat:$dst)], ENC>;
+             [(store SRC.ImmPat:$src, DST.Pat:$dst)], ENC, sched>;
 } // let mayStore = 1
 
 foreach REG = ["r", "a", "d"] in
@@ -168,9 +173,10 @@ foreach AM = MxMoveSupportedAMs in {
 // No pattern, as all immediate -> register moves are matched to the MOVI pseudo
 class MxMove_RI<MxType TYPE, string DST_REG, MxMoveEncoding ENC,
                 MxImmOpBundle SRC = !cast<MxImmOpBundle>("MxOp"#TYPE.Size#"AddrMode_i"),
-                MxOpBundle DST = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#DST_REG)>
+                MxOpBundle DST = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#DST_REG),
+                list<SchedWrite> sched = [WriteMOV_RR]>
     : MxMove<TYPE.Prefix, (outs DST.Op:$dst), (ins SRC.Op:$src),
-              [(null_frag)], ENC>;
+              [(null_frag)], ENC, sched>;
 
 foreach REG = ["r", "a", "d"] in {
   foreach TYPE = !if(!eq(REG, "d"), [MxType8, MxType16, MxType32], [MxType16, MxType32]) in
@@ -186,10 +192,11 @@ let mayLoad = 1 in
 class MxMove_RM<MxType TYPE, string DST_REG, MxOpBundle SRC, MxEncMemOp SRC_ENC,
                 MxMoveSize SIZE_ENC = !cast<MxMoveSize>("MxMoveSize"#TYPE.Size),
                 MxOpBundle DST = !cast<MxOpBundle>("MxOp"#TYPE.Size#"AddrMode_"#DST_REG),
-                MxEncMemOp DST_ENC = !cast<MxEncMemOp>("MxMoveDstOpEnc_"#DST_REG)>
+                MxEncMemOp DST_ENC = !cast<MxEncMemOp>("MxMoveDstOpEnc_"#DST_REG),
+                list<SchedWrite> sched = [WriteMOV_MR]>
     : MxMove<TYPE.Prefix, (outs DST.Op:$dst), (ins SRC.Op:$src),
              [(set TYPE.VT:$dst, (TYPE.Load SRC.Pat:$src))],
-             MxMoveEncoding<SIZE_ENC, DST_ENC, SRC_ENC>>;
+             MxMoveEncoding<SIZE_ENC, DST_ENC, SRC_ENC>, sched>;
 
 foreach REG = ["r", "a", "d"] in
 foreach AM = MxMoveSupportedAMs in {
@@ -214,11 +221,12 @@ let Pattern = [(null_frag)] in {
 
 let mayLoad = 1, mayStore = 1 in
 class MxMove_MM<MxType TYPE, MxOpBundle DST, MxOpBundle SRC,
-                MxEncMemOp DST_ENC, MxEncMemOp SRC_ENC>
+                MxEncMemOp DST_ENC, MxEncMemOp SRC_ENC,
+                list<SchedWrite> sched = [WriteMOV_MR]>
     : MxMove<TYPE.Prefix, (outs), (ins DST.Op:$dst, SRC.Op:$src),
              [(store (TYPE.Load SRC.Pat:$src), DST.Pat:$dst)],
              MxMoveEncoding<!cast<MxMoveSize>("MxMoveSize"#TYPE.Size),
-                            DST_ENC, SRC_ENC>>;
+                            DST_ENC, SRC_ENC>, sched>;
 
 foreach DST_AM = MxMoveSupportedAMs in
 foreach SRC_AM = MxMoveSupportedAMs in {
@@ -259,6 +267,7 @@ def MOVQ : MxInst<(outs MxDRD32:$dst), (ins Mxi8imm:$imm),
                   "moveq\t$imm, $dst",
                   [(null_frag)]> {
   let Inst = (descend 0b0111, (operand "$dst", 3), 0b0, (operand "$imm", 8));
+  let SchedRW = [WriteMOV_RR];
 }
 
 //===----------------------------------------------------------------------===//
@@ -296,10 +305,12 @@ class MxMOVEMEncoding<MxEncMemOp opnd_enc, bit size, bit direction,
 
 let mayStore = 1 in
 class MxMOVEM_MR<MxType TYPE, bit SIZE_ENC,
-                 MxOperand MEMOp, MxEncMemOp MEM_ENC>
+                 MxOperand MEMOp, MxEncMemOp MEM_ENC,
+                 list<SchedWrite> sched = [WriteMOVEM_RM]>
     : MxInst<(outs), (ins MEMOp:$dst, MxMoveMask:$mask),
              "movem."#TYPE.Prefix#"\t$mask, $dst", []> {
   let Inst = MxMOVEMEncoding<MEM_ENC, SIZE_ENC, MxMOVEM_MR, "mask">.Value;
+  let SchedRW = sched;
 }
 
 foreach AM = MxMoveSupportedAMs in {
@@ -312,10 +323,12 @@ foreach AM = MxMoveSupportedAMs in {
 
 let mayLoad = 1 in
 class MxMOVEM_RM<MxType TYPE, bit SIZE_ENC,
-                 MxOperand MEMOp, MxEncMemOp MEM_ENC>
+                 MxOperand MEMOp, MxEncMemOp MEM_ENC,
+                 list<SchedWrite> sched = [WriteMOVEM_MR]>
     : MxInst<(outs), (ins MxMoveMask:$mask, MEMOp:$src),
              "movem."#TYPE.Prefix#"\t$src, $mask", []> {
   let Inst = MxMOVEMEncoding<MEM_ENC, SIZE_ENC, MxMOVEM_RM, "mask">.Value;
+  let SchedRW = sched;
 }
 
 foreach AM = MxMoveSupportedAMs in {
@@ -443,13 +456,14 @@ def MOV8dc  : MxMoveFromCCRPseudo<MxOp8AddrMode_d.Op>;
 /// ----------------------------------------------------
 ///  0  1  0  0 | DST REG | 1  1  1 |   MODE  |   REG
 /// ----------------------------------------------------
-class MxLEA<MxOpBundle SRC, MxEncMemOp SRC_ENC>
+class MxLEA<MxOpBundle SRC, MxEncMemOp SRC_ENC, list<SchedWrite> sched = [WriteLEA]>
     : MxInst<(outs MxARD32:$dst), (ins SRC.Op:$src),
              "lea\t$src, $dst", [(set i32:$dst, SRC.Pat:$src)]> {
   let Inst = (ascend
     (descend 0b0100, (operand "$dst", 3), 0b111, SRC_ENC.EA),
     SRC_ENC.Supplement
   );
+  let SchedRW = sched;
 }
 
 foreach AM = ["p", "f", "b", "q", "k"] in
@@ -468,6 +482,7 @@ def LINK16 : MxInst<(outs), (ins MxARD16:$src, Mxi16imm:$disp), "link.w\t$src, $
     (descend 0b0100111001010, (operand "$src", 3)),
     (operand "$disp", 16)
   );
+  let SchedRW = [WriteLINK];
 }
 
 def LINK32 : MxInst<(outs), (ins MxARD16:$src, Mxi32imm:$disp), "link.l\t$src, $disp", []> {
@@ -476,10 +491,12 @@ def LINK32 : MxInst<(outs), (ins MxARD16:$src, Mxi32imm:$disp), "link.l\t$src, $
     (slice "$disp", 31, 16),
     (slice "$disp", 15, 0)
   );
+  let SchedRW = [WriteLINK];
 }
 
 def UNLK : MxInst<(outs), (ins MxARD32:$src), "unlk\t$src", []> {
   let Inst = (descend 0b0100111001011, (operand "$src", 3));
+  let SchedRW = [WriteUNLK];
 }
 
 } // let mayStore = 1
@@ -494,16 +511,28 @@ let Uses = [SP], Defs = [SP], hasSideEffects = 0 in {
 
 // SP <- SP - <size>; (SP) <- Dn
 let mayStore = 1 in {
-def PUSH8d  : MxPseudo<(outs), (ins DR8:$reg)>;
-def PUSH16d : MxPseudo<(outs), (ins DR16:$reg)>;
-def PUSH32r : MxPseudo<(outs), (ins XR32:$reg)>;
+def PUSH8d  : MxPseudo<(outs), (ins DR8:$reg)> {
+  let SchedRW = [WriteMOV_RM];
+}
+def PUSH16d : MxPseudo<(outs), (ins DR16:$reg)> {
+  let SchedRW = [WriteMOV_RM];
+}
+def PUSH32r : MxPseudo<(outs), (ins XR32:$reg)> {
+  let SchedRW = [WriteMOV_RM];
+}
 } // let mayStore = 1
 
 // Dn <- (SP); SP <- SP + <size>
 let mayLoad = 1 in {
-def POP8d  : MxPseudo<(outs DR8:$reg),  (ins)>;
-def POP16d : MxPseudo<(outs DR16:$reg), (ins)>;
-def POP32r : MxPseudo<(outs XR32:$reg), (ins)>;
+def POP8d  : MxPseudo<(outs DR8:$reg),  (ins)> {
+  let SchedRW = [WriteMOV_MR];
+}
+def POP16d : MxPseudo<(outs DR16:$reg), (ins)> {
+  let SchedRW = [WriteMOV_MR];
+}
+def POP32r : MxPseudo<(outs XR32:$reg), (ins)> {
+  let SchedRW = [WriteMOV_MR];
+}
 } // let mayLoad = 1
 
 } // let Uses/Defs = [SP], hasSideEffects = 0
@@ -511,10 +540,14 @@ def POP32r : MxPseudo<(outs XR32:$reg), (ins)>;
 
 let Defs = [CCR] in {
 class MxPseudoMove_RR<MxType DST, MxType SRC, list<dag> PAT = []>
-    : MxPseudo<(outs DST.ROp:$dst), (ins SRC.ROp:$src), PAT>;
+    : MxPseudo<(outs DST.ROp:$dst), (ins SRC.ROp:$src), PAT> {
+  let SchedRW = [WriteMOV_RR];
+}
 
 class MxPseudoMove_RM<MxType DST, MxOperand SRCOpd, list<dag> PAT = []>
-    : MxPseudo<(outs DST.ROp:$dst), (ins SRCOpd:$src), PAT>;
+    : MxPseudo<(outs DST.ROp:$dst), (ins SRCOpd:$src), PAT> {
+  let SchedRW = [WriteMOV_MR];
+}
 
 
 // These Pseudos handle loading immediates to registers.
@@ -524,7 +557,9 @@ class MxPseudoMove_RM<MxType DST, MxOperand SRCOpd, list<dag> PAT = []>
 // data registers if moveq matches.
 class MxPseudoMove_DI<MxType TYPE>
     : MxPseudo<(outs TYPE.ROp:$dst), (ins TYPE.IOp:$src),
-               [(set TYPE.ROp:$dst, imm:$src)]>;
+               [(set TYPE.ROp:$dst, imm:$src)]> {
+  let SchedRW = [WriteMOV_RR];
+}
 
 // i8 imm -> reg can always be converted to moveq,
 // but we still emit a pseudo for consistency.
