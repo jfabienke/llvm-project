@@ -227,6 +227,18 @@ public:
   }
 };
 
+class M68kMachOAsmBackend : public M68kAsmBackend {
+public:
+  M68kMachOAsmBackend(const Target &T) : M68kAsmBackend(T) {}
+
+  std::unique_ptr<MCObjectTargetWriter>
+  createObjectTargetWriter() const override {
+    // NeXTSTEP uses CPU_TYPE_MC680x0 (6) and CPU_SUBTYPE_MC68030 (1) or CPU_SUBTYPE_MC68040 (2)
+    return createM68kMachObjectWriter(/*Is32Bit=*/true, /*CPUType=*/6, 
+                                      /*CPUSubtype=*/1);
+  }
+};
+
 } // end anonymous namespace
 
 MCAsmBackend *llvm::createM68kAsmBackend(const Target &T,
@@ -234,6 +246,15 @@ MCAsmBackend *llvm::createM68kAsmBackend(const Target &T,
                                          const MCRegisterInfo &MRI,
                                          const MCTargetOptions &Options) {
   const Triple &TheTriple = STI.getTargetTriple();
+  
+  // Check for NeXTSTEP/Mach-O
+  if (TheTriple.isOSBinFormatMachO() || 
+      TheTriple.getOS() == Triple::Darwin ||  // Handle darwin as Mach-O too
+      TheTriple.getOSName() == "nextstep") {  // Explicit check for nextstep
+    return new M68kMachOAsmBackend(T);
+  }
+  
+  // Default to ELF
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TheTriple.getOS());
   return new M68kELFAsmBackend(T, OSABI);
 }

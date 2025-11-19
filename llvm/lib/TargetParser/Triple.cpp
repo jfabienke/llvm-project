@@ -282,6 +282,8 @@ StringRef Triple::getOSTypeName(OSType Kind) {
   case Linux: return "linux";
   case Lv2: return "lv2";
   case MacOSX: return "macosx";
+  case NextStep: return "nextstep";
+  case OpenStep: return "openstep";
   case Mesa3D: return "mesa3d";
   case NVCL: return "nvcl";
   case NaCl: return "nacl";
@@ -654,6 +656,8 @@ static Triple::OSType parseOS(StringRef OSName) {
     .StartsWith("linux", Triple::Linux)
     .StartsWith("lv2", Triple::Lv2)
     .StartsWith("macos", Triple::MacOSX)
+    .StartsWith("nextstep", Triple::NextStep)
+    .StartsWith("openstep", Triple::OpenStep)
     .StartsWith("netbsd", Triple::NetBSD)
     .StartsWith("openbsd", Triple::OpenBSD)
     .StartsWith("solaris", Triple::Solaris)
@@ -918,7 +922,6 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::le64:
   case Triple::loongarch32:
   case Triple::loongarch64:
-  case Triple::m68k:
   case Triple::mips64:
   case Triple::mips64el:
   case Triple::mips:
@@ -945,6 +948,12 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::ve:
   case Triple::xcore:
   case Triple::xtensa:
+    return Triple::ELF;
+
+  case Triple::m68k:
+    if (T.getOS() == Triple::MacOSX || T.getOS() == Triple::Darwin ||
+        T.getOS() == Triple::NextStep || T.getOS() == Triple::OpenStep)
+      return Triple::MachO;
     return Triple::ELF;
 
   case Triple::ppc64:

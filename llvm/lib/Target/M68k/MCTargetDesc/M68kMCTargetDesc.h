@@ -43,6 +43,10 @@ MCCodeEmitter *createM68kMCCodeEmitter(const MCInstrInfo &MCII,
 /// Construct an M68k ELF object writer.
 std::unique_ptr<MCObjectTargetWriter> createM68kELFObjectWriter(uint8_t OSABI);
 
+/// Construct an M68k Mach-O object writer.
+std::unique_ptr<MCObjectTargetWriter>
+createM68kMachObjectWriter(bool Is32Bit, uint32_t CPUType, uint32_t CPUSubtype);
+
 } // namespace llvm
 
 // Defines symbolic names for M68k registers. This defines a mapping from
