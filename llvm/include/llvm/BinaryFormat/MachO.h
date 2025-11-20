@@ -1561,7 +1561,6 @@ enum : uint32_t {
 // Constants for the cputype field.
 enum CPUType {
   CPU_TYPE_ANY = -1,
-  CPU_TYPE_MC680x0 = 6,
   CPU_TYPE_X86 = 7,
   CPU_TYPE_I386 = CPU_TYPE_X86,
   CPU_TYPE_X86_64 = CPU_TYPE_X86 | CPU_ARCH_ABI64,
@@ -1612,12 +1611,6 @@ enum CPUSubTypeX86 {
   CPU_SUBTYPE_X86_64_ALL = 3,
   CPU_SUBTYPE_X86_ARCH1 = 4,
   CPU_SUBTYPE_X86_64_H = 8
-};
-enum CPUSubTypeM68k {
-  CPU_SUBTYPE_MC68020 = 0,
-  CPU_SUBTYPE_MC68030 = 1,
-  CPU_SUBTYPE_MC68040 = 2,
-  CPU_SUBTYPE_MC68060 = 3
 };
 inline int CPU_SUBTYPE_INTEL(int Family, int Model) {
   return Family | (Model << 4);

@@ -208,8 +208,6 @@ public:
     Linux,
     Lv2, // PS3
     MacOSX,
-    NextStep,
-    OpenStep,
     NetBSD,
     OpenBSD,
     Solaris,

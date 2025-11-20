@@ -1,0 +1,141 @@
+//===-- M68kMachObjectWriter.cpp - M68k Mach-O Object Writer -------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// This file implements the M68k specific support for writing Mach-O object
+// files. This is specifically designed for NeXTSTEP support on M68k.
+//
+//===----------------------------------------------------------------------===//
+
+#include "MCTargetDesc/M68kFixupKinds.h"
+#include "MCTargetDesc/M68kMCTargetDesc.h"
+#include "llvm/BinaryFormat/MachO.h"
+#include "llvm/MC/MCAssembler.h"
+#include "llvm/MC/MCAsmLayout.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCFixup.h"
+#include "llvm/MC/MCFragment.h"
+#include "llvm/MC/MCMachObjectWriter.h"
+#include "llvm/MC/MCSection.h"
+#include "llvm/MC/MCSectionMachO.h"
+#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCValue.h"
+#include "llvm/Support/ErrorHandling.h"
+
+using namespace llvm;
+
+namespace {
+
+static unsigned getFixupKindLog2Size(MCFixupKind Kind) {
+  switch (Kind) {
+  default:
+    llvm_unreachable("Unknown fixup kind!");
+  case FK_Data_1:
+  case FK_PCRel_1:
+    return 0;
+  case FK_Data_2:
+  case FK_PCRel_2:
+    return 1;
+  case FK_Data_4:
+  case FK_PCRel_4:
+    return 2;
+  case FK_Data_8:
+  case FK_PCRel_8:
+    return 3;
+  }
+}
+class M68kMachObjectWriter : public MCMachObjectTargetWriter {
+public:
+  M68kMachObjectWriter(bool Is32Bit, uint32_t CPUType, uint32_t CPUSubtype)
+      : MCMachObjectTargetWriter(Is32Bit, CPUType, CPUSubtype) {}
+
+  void recordRelocation(MachObjectWriter *Writer, MCAssembler &Asm,
+                        const MCAsmLayout &Layout, const MCFragment *Fragment,
+                        const MCFixup &Fixup, MCValue Target,
+                        uint64_t &FixedValue) override;
+};
+
+void M68kMachObjectWriter::recordRelocation(MachObjectWriter *Writer,
+                                             MCAssembler &Asm,
+                                             const MCAsmLayout &Layout,
+                                             const MCFragment *Fragment,
+                                             const MCFixup &Fixup,
+                                             MCValue Target,
+                                             uint64_t &FixedValue) {
+  const MCSymbol *A = &Target.getSymA()->getSymbol();
+  const MCSection *Section = Fragment->getParent();
+  
+  bool IsPCRel = Writer->isFixupKindPCRel(Asm, Fixup.getKind());
+  uint32_t FixupOffset = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
+  unsigned Log2Size = getFixupKindLog2Size(Fixup.getKind());
+  uint32_t FixupAddress = Writer->getFragmentAddress(Fragment, Layout) + Fixup.getOffset();
+
+  // NeXTSTEP uses scattered relocations for certain cases
+  bool UseScattered = false;
+  
+  // Handle scattered relocations for 32-bit symbol differences (common in switch tables)
+  if (Target.getSymB()) {
+    const MCSymbol *B = &Target.getSymB()->getSymbol();
+    const MCSection *SecB = &B->getSection();
+    
+    if (SecB != Section) {
+      // Cross-section references require scattered relocations
+      UseScattered = true;
+    }
+  }
+
+  if (UseScattered) {
+    // Create a scattered relocation entry for NeXTSTEP
+    MachO::any_relocation_info MRE;
+    MRE.r_word0 = FixupAddress;
+    MRE.r_word1 = (IsPCRel << 30) |
+                  (Log2Size << 28) |
+                  (MachO::GENERIC_RELOC_VANILLA << 24) |
+                  (1 << 31); // R_SCATTERED flag
+    
+    Writer->addRelocation(A, Section, MRE);
+  } else {
+    // Standard relocation
+    unsigned Type = MachO::GENERIC_RELOC_VANILLA;
+    
+    // Determine relocation type based on fixup
+    switch (Fixup.getKind()) {
+    default:
+      report_fatal_error("Unimplemented fixup type for M68k Mach-O");
+    case FK_Data_1:
+    case FK_Data_2:
+    case FK_Data_4:
+      Type = MachO::GENERIC_RELOC_VANILLA;
+      break;
+    case FK_PCRel_1:
+    case FK_PCRel_2:
+    case FK_PCRel_4:
+      Type = MachO::GENERIC_RELOC_VANILLA;
+      IsPCRel = true;
+      break;
+    }
+
+    MachO::any_relocation_info MRE;
+    MRE.r_word0 = FixupOffset;
+    MRE.r_word1 = (Writer->getSymbolAddress(*A, Layout) << 8) |
+                  (IsPCRel << 7) |
+                  (Log2Size << 5) |
+                  (false << 4) | // External
+                  (Type << 0);
+
+    Writer->addRelocation(A, Section, MRE);
+  }
+}
+
+} // end anonymous namespace
+
+std::unique_ptr<MCObjectTargetWriter>
+llvm::createM68kMachObjectWriter(bool Is32Bit, uint32_t CPUType,
+                                 uint32_t CPUSubtype) {
+  return std::make_unique<M68kMachObjectWriter>(Is32Bit, CPUType, CPUSubtype);
+}
