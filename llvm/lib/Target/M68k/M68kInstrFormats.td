@@ -219,7 +219,7 @@ def MxEncSize64 : MxEncSize<0b11>;
 class MxInst<dag outs, dag ins,
              string asmStr = "",
              list<dag> pattern = [],
-             InstrItinClass itin = NoItinerary>
+             InstrItinClass itin = IIC_DEFAULT>
     : Instruction {
   let Namespace      = "M68k";
   let OutOperandList = outs;

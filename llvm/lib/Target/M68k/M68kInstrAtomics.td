@@ -16,6 +16,8 @@ foreach size = [8, 16, 32] in {
 }
 
 let Predicates = [AtLeastM68020] in {
+
+let Itinerary = IIC_CAS in {
 class MxCASOp<bits<2> size_encoding, MxType type>
     : MxInst<(outs type.ROp:$out),
              (ins type.ROp:$dc, type.ROp:$du, !cast<MxMemOp>("MxARI"#type.Size):$mem),
@@ -32,7 +34,7 @@ class MxCASOp<bits<2> size_encoding, MxType type>
 def CAS8  : MxCASOp<0x1, MxType8d>;
 def CAS16 : MxCASOp<0x2, MxType16d>;
 def CAS32 : MxCASOp<0x3, MxType32d>;
-
+} // Itinerary = IIC_CAS
 
 foreach size = [8, 16, 32] in {
   def : Pat<(!cast<SDPatternOperator>("atomic_cmp_swap_i"#size) MxCP_ARI:$ptr,
@@ -42,4 +44,5 @@ foreach size = [8, 16, 32] in {
                                        !cast<MxRegOp>("MxDRD"#size):$new,
                                        !cast<MxMemOp>("MxARI"#size):$ptr)>;
 }
+
 } // let Predicates = [AtLeastM68020]

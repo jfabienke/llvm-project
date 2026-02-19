@@ -71,16 +71,13 @@ foreach i = {0-7} in
 
 include "M68kSchedule.td"
 
-class Proc<string Name, list<SubtargetFeature> Features>
-    : ProcessorModel<Name, GenericM68kModel, Features>;
-
-def : Proc<"generic", [ FeatureISA00 ]>;
-def : Proc<"M68000",  [ FeatureISA00 ]>;
-def : Proc<"M68010",  [ FeatureISA10 ]>;
-def : Proc<"M68020",  [ FeatureISA20 ]>;
-def : Proc<"M68030",  [ FeatureISA30 ]>;
-def : Proc<"M68040",  [ FeatureISA40 ]>;
-def : Proc<"M68060",  [ FeatureISA60 ]>;
+def : ProcessorModel<"generic", GenericM68kModel, [ FeatureISA00 ]>;
+def : ProcessorModel<"M68000",  GenericM68kModel, [ FeatureISA00 ]>;
+def : ProcessorModel<"M68010",  GenericM68kModel, [ FeatureISA10 ]>;
+def : ProcessorModel<"M68020",  GenericM68kModel, [ FeatureISA20 ]>;
+def : ProcessorModel<"M68030",  M68030SchedModel, [ FeatureISA30 ]>;
+def : ProcessorModel<"M68040",  M68040SchedModel, [ FeatureISA40 ]>;
+def : ProcessorModel<"M68060",  M68060SchedModel, [ FeatureISA60 ]>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description

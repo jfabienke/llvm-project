@@ -54,7 +54,7 @@ def : Pat<(i32 (MxWrapperPC tblockaddress :$src)), (LEA32q tblockaddress :$src)>
 // instruction selection into a branch sequence.
 //===----------------------------------------------------------------------===//
 
-let usesCustomInserter = 1, Uses = [CCR] in
+let usesCustomInserter = 1, Uses = [CCR], Itinerary = IIC_ALU in
 class MxCMove<MxType TYPE>
     : MxPseudo<(outs TYPE.ROp:$dst), (ins TYPE.ROp:$t, TYPE.ROp:$f, i8imm:$cond),
                [(set TYPE.VT:$dst,

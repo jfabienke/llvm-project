@@ -53,7 +53,7 @@ def MxOpMode32_a_EA : MxOpModeEncoding<0b111>;
 // Encoding
 //===----------------------------------------------------------------------===//
 
-let Defs = [CCR] in {
+let Defs = [CCR], Itinerary = IIC_ALU in {
 let Constraints = "$src = $dst" in {
 
 /// Encoding for Normal forms
@@ -534,7 +534,7 @@ defm CMP32 : MMxCmp_MI<MxType32d>;
 /// ---------------------------------------------------
 ///  0  1  0  0  1  0  0 |  OPMODE | 0  0  0 |   REG
 /// ---------------------------------------------------
-let Defs = [CCR] in
+let Defs = [CCR], Itinerary = IIC_EXT in
 let Constraints = "$src = $dst" in
 class MxExt<MxType TO, MxType FROM>
     : MxInst<(outs TO.ROp:$dst), (ins TO.ROp:$src),
@@ -575,7 +575,7 @@ def : Pat<(sext_inreg i32:$src, i8),
 ///             |         |         | EFFECTIVE ADDRESS
 ///  x  x  x  x |   REG   | OP MODE |   MODE  |   REG
 /// ----------------------------------------------------
-let Defs = [CCR] in {
+let Defs = [CCR], Itinerary = IIC_DIV in {
 let Constraints = "$src = $dst" in {
 // $dreg <- $dreg op $dreg
 class MxDiMuOp_DD<string MN, bits<4> CMD, bit SIGNED = false,
@@ -727,10 +727,12 @@ def : Pat<(urem i16:$dst, Mxi16immSExt16:$opd),
              MxSubRegIndex16Lo)>;
 
 
+let Itinerary = IIC_MUL in {
 defm MUL : MxDiMuOp<"mul", 0xC>;
 
 def SMULd32d32 : MxDiMuOp_DD_Long<"muls.l", MxSMul, 0x130, /*SIGNED*/true>;
 def UMULd32d32 : MxDiMuOp_DD_Long<"mulu.l", MxUMul, 0x130, /*SIGNED*/false>;
+} // Itinerary = IIC_MUL
 
 // RR
 def : Pat<(mul i16:$dst, i16:$opd),
@@ -778,7 +780,7 @@ def : Pat<(mulhu i16:$dst, Mxi16immSExt16:$opd),
 ///             |            |      | EFFECTIVE ADDRESS
 ///  0  1  0  0 | x  x  x  x | SIZE |   MODE  |   REG
 /// ------------+------------+------+---------+---------
-let Defs = [CCR] in {
+let Defs = [CCR], Itinerary = IIC_ALU in {
 let Constraints = "$src = $dst" in {
 
 class MxNeg_D<MxType TYPE>
@@ -1059,8 +1061,10 @@ multiclass MxFUnaryOp<string mnemonic, bits<7> single, bits<7> double,
   }
 }
 
+let Itinerary = IIC_FADD in {
 defm FABS : MxFUnaryOp<"abs", 0b1011000, 0b1011100, 0b0011000>;
 defm FNEG : MxFUnaryOp<"neg", 0b1011010, 0b1011110, 0b0011010>;
+} // Itinerary = IIC_FADD
 
 //===----------------------------------------------------------------------===//
 // Binary floating point instruction
@@ -1102,7 +1106,37 @@ multiclass MxFBinaryOp<string mnemonic, bits<7> single, bits<7> double,
   }
 }
 
+let Itinerary = IIC_FADD in {
 defm FADD : MxFBinaryOp<"add", 0b1100010, 0b1100110, 0b0100010>;
 defm FSUB : MxFBinaryOp<"sub", 0b1101000, 0b1101100, 0b0101000>;
+} // Itinerary = IIC_FADD
+let Itinerary = IIC_FMUL in
 defm FMUL : MxFBinaryOp<"mul", 0b1100011, 0b1100111, 0b0100011>;
+let Itinerary = IIC_FDIV in
 defm FDIV : MxFBinaryOp<"div", 0b1100000, 0b1100100, 0b0100000>;
+
+//===----------------------------------------------------------------------===//
+// FP DAG Patterns — connect SelectionDAG nodes to FPU instructions
+//===----------------------------------------------------------------------===//
+
+let Predicates = [AtLeastM68881] in {
+  // Binary arithmetic — f32
+  def : Pat<(fadd f32:$src, f32:$opd), (FADD32fp_fp $src, $opd)>;
+  def : Pat<(fsub f32:$src, f32:$opd), (FSUB32fp_fp $src, $opd)>;
+  def : Pat<(fmul f32:$src, f32:$opd), (FMUL32fp_fp $src, $opd)>;
+  def : Pat<(fdiv f32:$src, f32:$opd), (FDIV32fp_fp $src, $opd)>;
+
+  // Binary arithmetic — f64
+  def : Pat<(fadd f64:$src, f64:$opd), (FADD64fp_fp $src, $opd)>;
+  def : Pat<(fsub f64:$src, f64:$opd), (FSUB64fp_fp $src, $opd)>;
+  def : Pat<(fmul f64:$src, f64:$opd), (FMUL64fp_fp $src, $opd)>;
+  def : Pat<(fdiv f64:$src, f64:$opd), (FDIV64fp_fp $src, $opd)>;
+
+  // Unary — f32
+  def : Pat<(fabs f32:$src), (FABS32fp_fp $src)>;
+  def : Pat<(fneg f32:$src), (FNEG32fp_fp $src)>;
+
+  // Unary — f64
+  def : Pat<(fabs f64:$src), (FABS64fp_fp $src)>;
+  def : Pat<(fneg f64:$src), (FNEG64fp_fp $src)>;
+} // Predicates = [AtLeastM68881]

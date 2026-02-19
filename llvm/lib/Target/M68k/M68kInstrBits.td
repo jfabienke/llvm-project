@@ -57,7 +57,7 @@ class MxBITEnc_I<bits<3> opmode, MxEncMemOp dst_enc, string bitno_name> {
   );
 }
 
-let Defs = [CCR] in {
+let Defs = [CCR], Itinerary = IIC_BIT in {
 class MxBIT_RR<string MN, bits<3> OPMODE, MxType TYPE>
     : MxInst<(outs), (ins TYPE.ROp:$dst, TYPE.ROp:$bitno),
              MN#"\t$bitno, $dst"> {
@@ -85,6 +85,7 @@ class MxBIT_MI<string MN, bits<3> OPMODE, MxType TYPE,
 }
 } // Defs = [CCR]
 
+let Itinerary = IIC_BIT in {
 def BTST8qd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.QOp,
                         MxEncAddrMode_q<"dst">>;
 def BTST8kd : MxBIT_MR<"btst", 0b100, MxType8d, MxType8.KOp,
@@ -93,6 +94,7 @@ def BTST8qi : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.QOp,
                         MxEncAddrMode_q<"dst">>;
 def BTST8ki : MxBIT_MI<"btst", 0b000, MxType8d, MxType8.KOp,
                         MxEncAddrMode_k<"dst">>;
+} // Itinerary = IIC_BIT
 
 multiclass MxBIT<string MN, bits<3> OP, bits<3> OPI> {
   // Register Bit manipulation limited to 32 bits only

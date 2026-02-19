@@ -42,7 +42,7 @@
 // NOP
 //===----------------------------------------------------------------------===//
 
-let hasSideEffects = 0 in {
+let hasSideEffects = 0, Itinerary = IIC_NOP in {
   def NOP : MxInst<(outs), (ins), "nop", []> {
     let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0001);
   }
@@ -92,7 +92,7 @@ def MxCCle : MxEncCondOp<0b1111>;
 ///  0  1  0  1 | CONDITION  | 1  1 |   MODE  |   REG
 /// ----------------------------------------------------
 
-let Uses = [CCR] in {
+let Uses = [CCR], Itinerary = IIC_SCC in {
 class MxSccR<string CC>
     : MxInst<(outs MxDRD8:$dst), (ins), "s"#CC#"\t$dst",
              [(set i8:$dst, (MxSetCC !cast<PatLeaf>("MxCOND"#CC), CCR))]> {
@@ -128,7 +128,8 @@ def SET#"p8"#cc : MxSccM<cc, MxType8.POp, MxType8.PPat, MxEncAddrMode_p<"dst">>;
 ///------------------------------+---------+---------
 /// 0  1  0  0  1  1  1  0  1  1 |  MODE   |   REG
 ///------------------------------+---------+---------
-let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in
+let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1,
+    Itinerary = IIC_JUMP in
 class MxJMP<MxOperand LOCOp, MxEncMemOp DST_ENC>
     : MxInst<(outs), (ins LOCOp:$dst), "jmp\t$dst", [(brind iPTR:$dst)]> {
   let Inst =
@@ -160,7 +161,7 @@ def JMP32j : MxJMP<MxARI32, MxEncAddrMode_j<"dst">>;
 /// --------------------------------------------------
 ///  32-BIT DISPLACEMENT IF 8-BIT DISPLACEMENT = $FF
 /// --------------------------------------------------
-let isBranch = 1, isTerminator = 1, Uses = [CCR] in
+let isBranch = 1, isTerminator = 1, Uses = [CCR], Itinerary = IIC_BRANCH in
 class MxBcc<string cc, Operand TARGET, dag disp_8, dag disp_16_32>
     : MxInst<(outs), (ins TARGET:$dst), "b"#cc#"\t$dst", []> {
   // FIXME: If we want to avoid supplying disp_16_32 with empty
@@ -207,7 +208,7 @@ def : Pat<(MxBrCond bb:$target, !cast<PatLeaf>("MxCOND"#cc), CCR),
 /// -------------------------------------------------
 ///  32-BIT DISPLACEMENT IF 8-BIT DISPLACEMENT = $FF
 /// -------------------------------------------------
-let isBranch = 1, isTerminator = 1, isBarrier = 1 in
+let isBranch = 1, isTerminator = 1, isBarrier = 1, Itinerary = IIC_BRANCH in
 class MxBra<Operand TARGET, dag disp_8, dag disp_16_32>
     : MxInst<(outs), (ins TARGET:$dst), "bra\t$dst", []> {
   let Inst =
@@ -235,7 +236,7 @@ def : Pat<(br bb:$target), (BRA8 MxBrTarget8:$target)>;
 ///  32-BIT DISPLACEMENT IF 8-BIT DISPLACEMENT = $FF
 /// -------------------------------------------------
 
-let isBranch = 1, isTerminator = 1 in
+let isBranch = 1, isTerminator = 1, Itinerary = IIC_CALL in
 class MxBsr<Operand TARGET, MxType TYPE, dag disp_8, dag disp_16_32>
     : MxInst<(outs), (ins TARGET:$dst), "bsr."#TYPE.Prefix#"\t$dst"> {
   let Inst = (ascend
@@ -263,7 +264,7 @@ def BSR32 : MxBsr<MxBrTarget32, MxType32, (descend 0b1111, 0b1111),
 // before calls from potentially appearing dead. Uses for argument
 // registers are added manually.
 let Uses = [SP] in
-let isCall = 1 in
+let isCall = 1, Itinerary = IIC_CALL in
 ///------------------------------+---------+---------
 /// F  E  D  C  B  A  9  8  7  6 | 5  4  3 | 2  1  0
 ///------------------------------+---------+---------
@@ -321,7 +322,8 @@ def TAILJMPj  : MxPseudo<(outs), (ins MxARI32_TC:$dst)>;
 // Return
 //===----------------------------------------------------------------------===//
 
-let isTerminator = 1, isReturn = 1, isBarrier = 1, hasCtrlDep = 1 in {
+let isTerminator = 1, isReturn = 1, isBarrier = 1, hasCtrlDep = 1,
+    Itinerary = IIC_RET in {
 
 def RTS : MxInst<(outs), (ins), "rts", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0111, 0b0101);
@@ -406,6 +408,7 @@ def MxTrapimm : MxOp<i8,  MxSize8,  "i">;
 let ParserMatchClass = MxBkptImm in
 def MxBkptimm : MxOp<i8,  MxSize8,  "i">;
 
+let Itinerary = IIC_TRAP in {
 def TRAP : MxInst<(outs), (ins MxTrapimm:$vect), "trap\t$vect", []> {
   let Inst = (descend 0b0100, 0b1110, 0b0100, (operand "$vect", 4));
 }
@@ -421,3 +424,4 @@ def BKPT : MxInst<(outs), (ins MxBkptimm:$vect), "bkpt\t$vect", []> {
 def ILLEGAL : MxInst<(outs), (ins), "illegal", []> {
   let Inst = (descend 0b0100, 0b1010, 0b1111, 0b1100);
 }
+} // Itinerary = IIC_TRAP

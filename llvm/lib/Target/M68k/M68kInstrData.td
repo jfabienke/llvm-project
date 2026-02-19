@@ -102,7 +102,7 @@ defm Dst : MxMoveOperandEncodings<"dst">;
 
 defvar MxMoveSupportedAMs = ["o", "e", "k", "q", "f", "p", "b", "j"];
 
-let Defs = [CCR] in
+let Defs = [CCR], Itinerary = IIC_MOVE_RR in
 class MxMove<string size, dag outs, dag ins, list<dag> pattern, MxMoveEncoding enc>
     : MxInst<outs, ins, "move."#size#"\t$src, $dst", pattern> {
   let Inst = enc.Value;
@@ -145,6 +145,7 @@ class MxMove_MI<MxType TYPE, MxOpBundle DST, MxMoveEncoding ENC,
              [(store SRC.ImmPat:$src, DST.Pat:$dst)], ENC>;
 } // let mayStore = 1
 
+let Itinerary = IIC_MOVE_RM in {
 foreach REG = ["r", "a", "d"] in
 foreach AM = MxMoveSupportedAMs in {
   foreach TYPE = !if(!eq(REG, "d"), [MxType8, MxType16, MxType32], [MxType16, MxType32]) in
@@ -163,6 +164,7 @@ foreach AM = MxMoveSupportedAMs in {
                                  !cast<MxEncMemOp>("MxMoveDstOpEnc_"#AM),
                                  MxEncAddrMode_i<"src", TYPE.Size>>>;
 } // foreach AM
+} // Itinerary = IIC_MOVE_RM
 
 // R <- I
 // No pattern, as all immediate -> register moves are matched to the MOVI pseudo
@@ -172,6 +174,7 @@ class MxMove_RI<MxType TYPE, string DST_REG, MxMoveEncoding ENC,
     : MxMove<TYPE.Prefix, (outs DST.Op:$dst), (ins SRC.Op:$src),
               [(null_frag)], ENC>;
 
+let Itinerary = IIC_MOVE_RI in {
 foreach REG = ["r", "a", "d"] in {
   foreach TYPE = !if(!eq(REG, "d"), [MxType8, MxType16, MxType32], [MxType16, MxType32]) in
   def MOV # TYPE.Size # REG # i # TYPE.Postfix
@@ -180,6 +183,7 @@ foreach REG = ["r", "a", "d"] in {
                                  !cast<MxEncMemOp>("MxMoveDstOpEnc_"#REG),
                                  MxEncAddrMode_i<"src", TYPE.Size>>>;
 } // foreach REG
+} // Itinerary = IIC_MOVE_RI
 
 // R <- M
 let mayLoad = 1 in
@@ -191,6 +195,7 @@ class MxMove_RM<MxType TYPE, string DST_REG, MxOpBundle SRC, MxEncMemOp SRC_ENC,
              [(set TYPE.VT:$dst, (TYPE.Load SRC.Pat:$src))],
              MxMoveEncoding<SIZE_ENC, DST_ENC, SRC_ENC>>;
 
+let Itinerary = IIC_MOVE_MR in {
 foreach REG = ["r", "a", "d"] in
 foreach AM = MxMoveSupportedAMs in {
   foreach TYPE = !if(!eq(REG, "d"), [MxType8, MxType16, MxType32], [MxType16, MxType32]) in
@@ -211,6 +216,7 @@ let Pattern = [(null_frag)] in {
     }
   } // foreach AM
 } // let Pattern
+} // Itinerary = IIC_MOVE_MR
 
 let mayLoad = 1, mayStore = 1 in
 class MxMove_MM<MxType TYPE, MxOpBundle DST, MxOpBundle SRC,
@@ -220,6 +226,7 @@ class MxMove_MM<MxType TYPE, MxOpBundle DST, MxOpBundle SRC,
              MxMoveEncoding<!cast<MxMoveSize>("MxMoveSize"#TYPE.Size),
                             DST_ENC, SRC_ENC>>;
 
+let Itinerary = IIC_MOVE_MM in {
 foreach DST_AM = MxMoveSupportedAMs in
 foreach SRC_AM = MxMoveSupportedAMs in {
   foreach TYPE = [MxType8, MxType16, MxType32] in
@@ -229,6 +236,7 @@ foreach SRC_AM = MxMoveSupportedAMs in {
                   !cast<MxEncMemOp>("MxMoveDstOpEnc_"#DST_AM),
                   !cast<MxEncMemOp>("MxMoveSrcOpEnc_"#SRC_AM)>;
 } // foreach SRC_AM
+} // Itinerary = IIC_MOVE_MM
 
 // Store ABS(basically pointer) as Immdiate to Mem
 def : Pat<(store   MxType32.BPat :$src, MxType32.PPat :$dst),
@@ -254,7 +262,7 @@ def : Pat<(store   MxType32.BPat :$src, MxType32.JPat :$dst),
 /// ------------+---------+---+-----------------------
 
 // No pattern, as all immediate -> register moves are matched to the MOVI pseudo
-let Defs = [CCR] in
+let Defs = [CCR], Itinerary = IIC_MOVE_RI in
 def MOVQ : MxInst<(outs MxDRD32:$dst), (ins Mxi8imm:$imm),
                   "moveq\t$imm, $dst",
                   [(null_frag)]> {
@@ -294,7 +302,7 @@ class MxMOVEMEncoding<MxEncMemOp opnd_enc, bit size, bit direction,
   );
 }
 
-let mayStore = 1 in
+let mayStore = 1, Itinerary = IIC_MOVEM in
 class MxMOVEM_MR<MxType TYPE, bit SIZE_ENC,
                  MxOperand MEMOp, MxEncMemOp MEM_ENC>
     : MxInst<(outs), (ins MEMOp:$dst, MxMoveMask:$mask),
@@ -310,7 +318,7 @@ foreach AM = MxMoveSupportedAMs in {
                    !cast<MxEncMemOp>("MxMoveDstOpEnc_"#AM)>;
 } // foreach AM
 
-let mayLoad = 1 in
+let mayLoad = 1, Itinerary = IIC_MOVEM in
 class MxMOVEM_RM<MxType TYPE, bit SIZE_ENC,
                  MxOperand MEMOp, MxEncMemOp MEM_ENC>
     : MxInst<(outs), (ins MxMoveMask:$mask, MEMOp:$src),
@@ -371,7 +379,7 @@ def MOVM32mp_P : MxMOVEM_RM_Pseudo<MxType32r, MxType32.POp>;
 ///                               | EFFECTIVE ADDRESS
 ///  0  1  0  0  0  1  0  0  1  1 |   MODE  |   REG
 /// --------------------------------------------------
-let Defs = [CCR] in
+let Defs = [CCR], Itinerary = IIC_MOVE_RR in
 class MxMoveToCCR<MxOperand MEMOp, MxEncMemOp SRC_ENC>
     : MxInst<(outs CCRC:$dst), (ins MEMOp:$src), "move.w\t$src, $dst", []> {
   let Inst = (ascend
@@ -443,6 +451,7 @@ def MOV8dc  : MxMoveFromCCRPseudo<MxOp8AddrMode_d.Op>;
 /// ----------------------------------------------------
 ///  0  1  0  0 | DST REG | 1  1  1 |   MODE  |   REG
 /// ----------------------------------------------------
+let Itinerary = IIC_LEA in
 class MxLEA<MxOpBundle SRC, MxEncMemOp SRC_ENC>
     : MxInst<(outs MxARD32:$dst), (ins SRC.Op:$src),
              "lea\t$src, $dst", [(set i32:$dst, SRC.Pat:$src)]> {
@@ -460,7 +469,7 @@ def LEA32 # AM : MxLEA<!cast<MxOpBundle>("MxOp32AddrMode_"#AM),
 // LINK/UNLK
 //===----------------------------------------------------------------------===//
 
-let Uses = [SP], Defs = [SP] in {
+let Uses = [SP], Defs = [SP], Itinerary = IIC_LINK in {
 let mayStore = 1 in {
 
 def LINK16 : MxInst<(outs), (ins MxARD16:$src, Mxi16imm:$disp), "link.w\t$src, $disp", []> {
@@ -664,7 +673,7 @@ def : Pat<(i8  (trunc i16:$src)),
 // FMOVE
 //===----------------------------------------------------------------------===//
 
-let Defs = [FPS] in
+let Defs = [FPS], Itinerary = IIC_FMOVE in
 class MxFMove<string size, dag outs, dag ins, list<dag> pattern,
               string rounding = "">
     : MxInst<outs, ins,
@@ -756,3 +765,80 @@ def FMOVE32fpcs_d : MxFMove_FSYS_R<"d">;
 def FMOVE32d_fpcs : MxFMove_R_FSYS<"d">;
 def FMOVE32fpi_a  : MxFMove_FSYS_R<"a">;
 def FMOVE32a_fpi  : MxFMove_R_FSYS<"a">;
+
+//===----------------------------------------------------------------------===//
+// FMOVE Memory — load/store for FP register spill/reload and memory access
+//
+// Encoding:
+//   Word 0: 1111 001 000 <EA>       (coprocessor ID=001, general command)
+//   Word 1: 0 1 <dir> <fmt:3> <reg:3> 0000000
+//     dir=0: EA -> FPn (load),  fmt = source format
+//     dir=1: FPn -> EA (store), fmt = destination format
+//   fmt: 001=single(f32), 101=double(f64)
+//===----------------------------------------------------------------------===//
+
+let Predicates = [AtLeastM68881] in {
+
+// FP Load: (d16,An) -> FPn
+let mayLoad = 1, isCodeGenOnly = 1 in {
+def FMOV_LOAD_F32p
+    : MxInst<(outs MxFPR32:$dst), (ins MxARID32:$src),
+             "fmove.s\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_p<"src">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:load*/0b0,
+      /*fmt:single*/0b001, (operand "$dst", 3), 0b0000000),
+    MxEncAddrMode_p<"src">.Supplement
+  );
+}
+
+def FMOV_LOAD_F64p
+    : MxInst<(outs MxFPR64:$dst), (ins MxARID32:$src),
+             "fmove.d\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_p<"src">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:load*/0b0,
+      /*fmt:double*/0b101, (operand "$dst", 3), 0b0000000),
+    MxEncAddrMode_p<"src">.Supplement
+  );
+}
+} // mayLoad, isCodeGenOnly
+
+// FP Store: FPn -> (d16,An)
+let mayStore = 1, isCodeGenOnly = 1 in {
+def FMOV_STORE_F32p
+    : MxInst<(outs), (ins MxARID32:$dst, MxFPR32:$src),
+             "fmove.s\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_p<"dst">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:store*/0b1,
+      /*fmt:single*/0b001, (operand "$src", 3), 0b0000000),
+    MxEncAddrMode_p<"dst">.Supplement
+  );
+}
+
+def FMOV_STORE_F64p
+    : MxInst<(outs), (ins MxARID32:$dst, MxFPR64:$src),
+             "fmove.d\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_p<"dst">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:store*/0b1,
+      /*fmt:double*/0b101, (operand "$src", 3), 0b0000000),
+    MxEncAddrMode_p<"dst">.Supplement
+  );
+}
+} // mayStore, isCodeGenOnly
+
+// Load/store patterns for FP memory access via ARID addressing mode
+def : Pat<(f32 (load MxCP_ARID:$src)), (FMOV_LOAD_F32p MxARID32:$src)>;
+def : Pat<(f64 (load MxCP_ARID:$src)), (FMOV_LOAD_F64p MxARID32:$src)>;
+def : Pat<(store f32:$src, MxCP_ARID:$dst),
+          (FMOV_STORE_F32p MxARID32:$dst, MxFPR32:$src)>;
+def : Pat<(store f64:$src, MxCP_ARID:$dst),
+          (FMOV_STORE_F64p MxARID32:$dst, MxFPR64:$src)>;
+
+} // Predicates = [AtLeastM68881]
