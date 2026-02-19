@@ -249,6 +249,8 @@ private:
   SDValue LowerShiftRightParts(SDValue Op, SelectionDAG &DAG, bool IsSRA) const;
 
   SDValue LowerATOMICFENCE(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerATOMICLOAD(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerATOMICSTORE(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue,
                           CallingConv::ID CallConv, bool IsVarArg,

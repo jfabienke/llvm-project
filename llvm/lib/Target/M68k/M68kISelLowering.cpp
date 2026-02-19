@@ -154,43 +154,100 @@ M68kTargetLowering::M68kTargetLowering(const M68kTargetMachine &TM,
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, PtrVT, Custom);
 
+  // Floating point support — register FP classes when FPU is available
+  if (Subtarget.hasFPU()) {
+    addRegisterClass(MVT::f32, &M68k::FPDR32RegClass);
+    addRegisterClass(MVT::f64, &M68k::FPDR64RegClass);
+
+    for (auto VT : {MVT::f32, MVT::f64}) {
+      // Legal — have Pat records for FPU instructions
+      setOperationAction(ISD::FADD, VT, Legal);
+      setOperationAction(ISD::FSUB, VT, Legal);
+      setOperationAction(ISD::FMUL, VT, Legal);
+      setOperationAction(ISD::FDIV, VT, Legal);
+      setOperationAction(ISD::FABS, VT, Legal);
+      setOperationAction(ISD::FNEG, VT, Legal);
+
+      // Expand — no hardware support, use libcalls
+      setOperationAction(ISD::FSQRT, VT, Expand);
+      setOperationAction(ISD::FSIN, VT, Expand);
+      setOperationAction(ISD::FCOS, VT, Expand);
+      setOperationAction(ISD::FPOW, VT, Expand);
+      setOperationAction(ISD::FLOG, VT, Expand);
+      setOperationAction(ISD::FLOG2, VT, Expand);
+      setOperationAction(ISD::FLOG10, VT, Expand);
+      setOperationAction(ISD::FEXP, VT, Expand);
+      setOperationAction(ISD::FEXP2, VT, Expand);
+      setOperationAction(ISD::FCEIL, VT, Expand);
+      setOperationAction(ISD::FFLOOR, VT, Expand);
+      setOperationAction(ISD::FTRUNC, VT, Expand);
+      setOperationAction(ISD::FRINT, VT, Expand);
+      setOperationAction(ISD::FNEARBYINT, VT, Expand);
+      setOperationAction(ISD::FMA, VT, Expand);
+      setOperationAction(ISD::FMINNUM, VT, Expand);
+      setOperationAction(ISD::FMAXNUM, VT, Expand);
+      setOperationAction(ISD::FCOPYSIGN, VT, Expand);
+
+      // Conversions — expand to libcalls
+      setOperationAction(ISD::FP_TO_SINT, VT, Expand);
+      setOperationAction(ISD::FP_TO_UINT, VT, Expand);
+      setOperationAction(ISD::SINT_TO_FP, VT, Expand);
+      setOperationAction(ISD::UINT_TO_FP, VT, Expand);
+
+      // Control flow with FP — expand (no FP condition codes yet)
+      setOperationAction(ISD::BR_CC, VT, Expand);
+      setOperationAction(ISD::SELECT_CC, VT, Expand);
+      setOperationAction(ISD::SELECT, VT, Expand);
+      setOperationAction(ISD::SETCC, VT, Expand);
+    }
+
+    // FP extend/round between f32 and f64
+    setOperationAction(ISD::FP_EXTEND, MVT::f64, Expand);
+    setOperationAction(ISD::FP_ROUND, MVT::f32, Expand);
+  }
+
   computeRegisterProperties(STI.getRegisterInfo());
 
-  // We lower the `atomic-compare-and-swap` to `__sync_val_compare_and_swap`
-  // for subtarget < M68020
   setMaxAtomicSizeInBitsSupported(32);
-  setOperationAction(ISD::ATOMIC_CMP_SWAP, {MVT::i8, MVT::i16, MVT::i32},
-                     Subtarget.atLeastM68020() ? Legal : LibCall);
 
   setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Custom);
 
-  // M68k does not have native read-modify-write support, so expand all of them
-  // to `__sync_fetch_*` for target < M68020, otherwise expand to CmpxChg.
-  // See `shouldExpandAtomicRMWInIR` below.
-  setOperationAction(
-      {
-          ISD::ATOMIC_LOAD_ADD,
-          ISD::ATOMIC_LOAD_SUB,
-          ISD::ATOMIC_LOAD_AND,
-          ISD::ATOMIC_LOAD_OR,
-          ISD::ATOMIC_LOAD_XOR,
-          ISD::ATOMIC_LOAD_NAND,
-          ISD::ATOMIC_LOAD_MIN,
-          ISD::ATOMIC_LOAD_MAX,
-          ISD::ATOMIC_LOAD_UMIN,
-          ISD::ATOMIC_LOAD_UMAX,
-          ISD::ATOMIC_SWAP,
-      },
-      {MVT::i8, MVT::i16, MVT::i32}, LibCall);
+  // Lower atomic loads/stores to regular loads/stores.
+  // M68k aligned MOVE instructions are naturally tear-free for i8/i16/i32,
+  // so "unordered" atomic semantics are satisfied without special hardware.
+  setOperationAction(ISD::ATOMIC_LOAD,  {MVT::i8, MVT::i16, MVT::i32}, Custom);
+  setOperationAction(ISD::ATOMIC_STORE, {MVT::i8, MVT::i16, MVT::i32}, Custom);
+
+  // ATOMIC_CMP_SWAP: use the native CAS8/CAS16/CAS32 instructions that exist
+  // in M68kInstrAtomics.td for M68020+.  Setting Expand on M68040 causes
+  // SelectionDAGLegalize to emit ATOMIC_CMP_SWAP_WITH_SUCCESS, which then
+  // tries to allocate an i1/i8 physical register — and getMinimalPhysRegClass
+  // asserts because M68k has no such register class.  Legal lets the
+  // TableGen patterns match directly without going through that path.
+  // All other complex RMW atomics: Expand builds a CAS-loop using the
+  // Legal CAS above; nextstep-atomics provides fallback libcalls at link time.
+  for (auto VT : {MVT::i8, MVT::i16, MVT::i32}) {
+    setOperationAction(ISD::ATOMIC_CMP_SWAP,   VT, Legal);
+    setOperationAction(ISD::ATOMIC_SWAP,       VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_ADD,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_SUB,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_AND,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_OR,    VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_XOR,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_NAND,  VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_MIN,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_MAX,   VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_UMIN,  VT, Expand);
+    setOperationAction(ISD::ATOMIC_LOAD_UMAX,  VT, Expand);
+  }
 
   setMinFunctionAlignment(Align(2));
 }
 
 TargetLoweringBase::AtomicExpansionKind
 M68kTargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *RMW) const {
-  return Subtarget.atLeastM68020()
-             ? TargetLoweringBase::AtomicExpansionKind::CmpXChg
-             : TargetLoweringBase::AtomicExpansionKind::None;
+  // Always use libcalls for atomic RMW; nextstep-atomics provides them.
+  return TargetLoweringBase::AtomicExpansionKind::None;
 }
 
 Register
@@ -1421,6 +1478,10 @@ SDValue M68kTargetLowering::LowerOperation(SDValue Op,
     return LowerShiftRightParts(Op, DAG, false);
   case ISD::ATOMIC_FENCE:
     return LowerATOMICFENCE(Op, DAG);
+  case ISD::ATOMIC_LOAD:
+    return LowerATOMICLOAD(Op, DAG);
+  case ISD::ATOMIC_STORE:
+    return LowerATOMICSTORE(Op, DAG);
   case ISD::GlobalTLSAddress:
     return LowerGlobalTLSAddress(Op, DAG);
   }
@@ -3370,6 +3431,42 @@ SDValue M68kTargetLowering::LowerATOMICFENCE(SDValue Op,
 
   return DAG.getNode(ISD::INLINEASM, SDLoc(Op),
                      DAG.getVTList(MVT::Other, MVT::Glue), AsmOperands);
+}
+
+// Lower ISD::ATOMIC_LOAD to a regular load.
+// M68k aligned MOVE instructions are naturally tear-free for i8/i16/i32, so
+// unordered atomic semantics are satisfied without special hardware support.
+SDValue M68kTargetLowering::LowerATOMICLOAD(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  auto *Node = cast<AtomicSDNode>(Op.getNode());
+  SDLoc DL(Op);
+
+  EVT ResVT = Node->getValueType(0); // Register type (e.g. i32)
+  EVT MemVT = Node->getMemoryVT();   // Memory type (e.g. i8 for AtomicBool)
+
+  // getExtLoad returns (Value, Chain) — exactly matching ATOMIC_LOAD's two
+  // results, so the legalizer can directly replace both outputs.
+  if (ResVT == MemVT)
+    return DAG.getLoad(ResVT, DL, Node->getChain(), Node->getBasePtr(),
+                       Node->getMemOperand());
+  return DAG.getExtLoad(ISD::EXTLOAD, DL, ResVT, Node->getChain(),
+                        Node->getBasePtr(), MemVT, Node->getMemOperand());
+}
+
+// Lower ISD::ATOMIC_STORE to a regular store.
+SDValue M68kTargetLowering::LowerATOMICSTORE(SDValue Op,
+                                              SelectionDAG &DAG) const {
+  auto *Node = cast<AtomicSDNode>(Op.getNode());
+  SDLoc DL(Op);
+
+  EVT ValVT = Node->getVal().getValueType(); // Register type
+  EVT MemVT = Node->getMemoryVT();           // Memory type
+
+  if (ValVT == MemVT)
+    return DAG.getStore(Node->getChain(), DL, Node->getVal(),
+                        Node->getBasePtr(), Node->getMemOperand());
+  return DAG.getTruncStore(Node->getChain(), DL, Node->getVal(),
+                           Node->getBasePtr(), MemVT, Node->getMemOperand());
 }
 
 // Lower dynamic stack allocation to _alloca call for Cygwin/Mingw targets.

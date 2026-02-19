@@ -29,6 +29,8 @@ def RetCC_M68k_C : CallingConv<[
   CCIfType<[i8],   CCAssignToReg<[BD0, BD1]>>,
   CCIfType<[i16],  CCAssignToReg<[WD0, WD1]>>,
   CCIfType<[i32],  CCAssignToReg<[D0, D1]>>,
+  CCIfType<[f32],  CCAssignToReg<[FP0]>>,
+  CCIfType<[f64],  CCAssignToReg<[FP0]>>,
 ]>;
 
 /// M68k fastcc return convention.
@@ -61,7 +63,11 @@ def CC_M68k_Common : CallingConv<[
 
   /// Integer values get stored in stack slots that are 4 bytes in
   /// size and 4-byte aligned.
-  CCIfType<[i32],  CCAssignToStack<4, 4>>
+  CCIfType<[i32],  CCAssignToStack<4, 4>>,
+
+  /// FP values are passed on the stack (SysV M68k ABI)
+  CCIfType<[f32],  CCAssignToStack<4, 4>>,
+  CCIfType<[f64],  CCAssignToStack<8, 4>>
 ]>;
 
 def CC_M68k_Fast : CallingConv<[
@@ -109,6 +115,8 @@ def CSR_NoRegs : CalleeSavedRegs<(add)>;
 
 // A5 - BP
 // A6 - FP
+// FP2-FP7 are callee-saved per SysV M68k ABI (FP0-FP1 are scratch)
 def CSR_STD : CalleeSavedRegs<(add D2, D3, D4, D5, D6, D7,
-                                   A2, A3, A4, A5, A6)>;
+                                   A2, A3, A4, A5, A6,
+                                   FP2, FP3, FP4, FP5, FP6, FP7)>;
 

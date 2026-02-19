@@ -666,6 +666,14 @@ void M68kInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                 MCRegister SrcReg, bool KillSrc) const {
   unsigned Opc = 0;
 
+  // FP register copies — all M68k FP regs are 80-bit internally,
+  // so use FMOVE.X (extended precision) for any FP-to-FP copy.
+  if (M68k::FPDR80RegClass.contains(DstReg, SrcReg)) {
+    BuildMI(MBB, MI, DL, get(M68k::FMOV80fp_fp), DstReg)
+        .addReg(SrcReg, getKillRegState(KillSrc));
+    return;
+  }
+
   // First deal with the normal symmetric copies.
   if (M68k::XR32RegClass.contains(DstReg, SrcReg))
     Opc = M68k::MOV32rr;
@@ -702,19 +710,53 @@ void M68kInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     return;
   }
 
+  // Downcast copies: narrowing from wider to narrower data register class.
+  // M68k data registers are layered: D0 (XR32) ⊃ WD0 (XR16) ⊃ BD0 (DR8).
+  // RI.getSubReg handles composed indices, so MxSubRegIndex8Lo works on XR32.
+  if (M68k::XR16RegClass.contains(DstReg) && M68k::XR32RegClass.contains(SrcReg)) {
+    MCRegister SubSrc = RI.getSubReg(SrcReg, M68k::MxSubRegIndex16Lo);
+    assert(SubSrc && "XR32 register missing MxSubRegIndex16Lo sub-register");
+    BuildMI(MBB, MI, DL, get(M68k::MOV16rr), DstReg)
+        .addReg(SubSrc, getKillRegState(KillSrc));
+    return;
+  }
+  if (M68k::DR8RegClass.contains(DstReg) &&
+      (M68k::XR32RegClass.contains(SrcReg) || M68k::XR16RegClass.contains(SrcReg))) {
+    MCRegister SubSrc = RI.getSubReg(SrcReg, M68k::MxSubRegIndex8Lo);
+    assert(SubSrc && "Register missing MxSubRegIndex8Lo sub-register");
+    BuildMI(MBB, MI, DL, get(M68k::MOV8dd), DstReg)
+        .addReg(SubSrc, getKillRegState(KillSrc));
+    return;
+  }
+
   bool FromCCR = SrcReg == M68k::CCR;
   bool FromSR = SrcReg == M68k::SR;
   bool ToCCR = DstReg == M68k::CCR;
   bool ToSR = DstReg == M68k::SR;
 
   if (FromCCR) {
-    assert(M68k::DR8RegClass.contains(DstReg) &&
-           "Need DR8 register to copy CCR");
-    Opc = M68k::MOV8dc;
+    if (M68k::DR8RegClass.contains(DstReg)) {
+      // Direct: MOVE CCR, Dn
+      Opc = M68k::MOV8dc;
+    } else {
+      // CCR can only be directly moved to data registers.
+      // Use D0 as a temporary: MOVE CCR, D0; copy D0 → DstReg.
+      BuildMI(MBB, MI, DL, get(M68k::MOV8dc), M68k::D0)
+          .addReg(SrcReg, getKillRegState(KillSrc));
+      copyPhysReg(MBB, MI, DL, DstReg, M68k::D0, /*KillSrc=*/true);
+      return;
+    }
   } else if (ToCCR) {
-    assert(M68k::DR8RegClass.contains(SrcReg) &&
-           "Need DR8 register to copy CCR");
-    Opc = M68k::MOV8cd;
+    if (M68k::DR8RegClass.contains(SrcReg)) {
+      // Direct: MOVE Dn, CCR
+      Opc = M68k::MOV8cd;
+    } else {
+      // Copy SrcReg → D0 first, then MOVE D0, CCR.
+      copyPhysReg(MBB, MI, DL, M68k::D0, SrcReg, KillSrc);
+      BuildMI(MBB, MI, DL, get(M68k::MOV8cd), DstReg)
+          .addReg(M68k::D0, getKillRegState(true));
+      return;
+    }
   } else if (FromSR || ToSR)
     llvm_unreachable("Cannot emit SR copy instruction");
 
@@ -747,8 +789,13 @@ unsigned getLoadStoreRegOpcode(unsigned Reg, const TargetRegisterClass *RC,
     assert(M68k::XR16RegClass.hasSubClassEq(RC) && "Unknown 2-byte regclass");
     return load ? M68k::MOVM16mp_P : M68k::MOVM16pm_P;
   case 32:
+    if (M68k::FPDR32RegClass.hasSubClassEq(RC))
+      return load ? M68k::FMOV_LOAD_F32p : M68k::FMOV_STORE_F32p;
     assert(M68k::XR32RegClass.hasSubClassEq(RC) && "Unknown 4-byte regclass");
     return load ? M68k::MOVM32mp_P : M68k::MOVM32pm_P;
+  case 64:
+    assert(M68k::FPDR64RegClass.hasSubClassEq(RC) && "Unknown 8-byte regclass");
+    return load ? M68k::FMOV_LOAD_F64p : M68k::FMOV_STORE_F64p;
   }
 }
 
@@ -769,7 +816,13 @@ bool M68kInstrInfo::getStackSlotRange(const TargetRegisterClass *RC,
                                       unsigned SubIdx, unsigned &Size,
                                       unsigned &Offset,
                                       const MachineFunction &MF) const {
-  // The slot size must be the maximum size so we can easily use MOVEM.L
+  // FP double-precision registers need 8 bytes for spill slots
+  if (M68k::FPDR64RegClass.hasSubClassEq(RC)) {
+    Size = 8;
+    Offset = 0;
+    return true;
+  }
+  // For integer registers and f32 FP registers, MOVEM.L stores 4 bytes
   Size = 4;
   Offset = 0;
   return true;
