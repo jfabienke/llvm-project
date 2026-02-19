@@ -219,6 +219,17 @@ TargetRegisterInfo::getMinimalPhysRegClass(MCRegister reg, MVT VT) const {
       BestRC = RC;
   }
 
+  // Some targets lack a dedicated register class for certain value types
+  // (e.g. M68k has no i1 class, but cmpxchg can produce an i1 success flag).
+  // Fall back to an unconstrained search rather than asserting, so callers
+  // throughout the SelectionDAG pipeline see a valid register class.
+  if (!BestRC) {
+    for (const TargetRegisterClass* RC : regclasses()) {
+      if (RC->contains(reg) && (!BestRC || BestRC->hasSubClass(RC)))
+        BestRC = RC;
+    }
+  }
+
   assert(BestRC && "Couldn't find the register class");
   return BestRC;
 }

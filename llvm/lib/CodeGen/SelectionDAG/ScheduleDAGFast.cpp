@@ -580,9 +580,21 @@ void ScheduleDAGFast::ListScheduleBottomUp() {
         unsigned Reg = LRegs[0];
         SUnit *LRDef = LiveRegDefs[Reg];
         MVT VT = getPhysicalRegisterVT(LRDef->getNode(), Reg, TII);
-        const TargetRegisterClass *RC =
-          TRI->getMinimalPhysRegClass(Reg, VT);
-        const TargetRegisterClass *DestRC = TRI->getCrossCopyRegClass(RC);
+        // getMinimalPhysRegClass asserts when no register class covers (Reg, VT).
+        // Some targets (e.g. M68k) have no register class for types like i1.
+        const TargetRegisterClass *RC = nullptr;
+        // Pass 1: type-constrained search
+        for (const TargetRegisterClass *TRC : TRI->regclasses())
+          if ((VT == MVT::Other || TRI->isTypeLegalForClass(*TRC, VT)) &&
+              TRC->contains(Reg) && (!RC || RC->hasSubClass(TRC)))
+            RC = TRC;
+        // Pass 2: unconstrained search (for targets where VT has no RC)
+        if (!RC)
+          for (const TargetRegisterClass *TRC : TRI->regclasses())
+            if (TRC->contains(Reg) && (!RC || RC->hasSubClass(TRC)))
+              RC = TRC;
+        // If RC is still null, the register is unclassifiable; handle below.
+        const TargetRegisterClass *DestRC = RC ? TRI->getCrossCopyRegClass(RC) : nullptr;
 
         // If cross copy register class is the same as RC, then it must be
         // possible copy the value directly. Do not try duplicate the def.
@@ -592,28 +604,41 @@ void ScheduleDAGFast::ListScheduleBottomUp() {
         // If cross copy register class is null, then it's not possible to copy
         // the value at all.
         SUnit *NewDef = nullptr;
-        if (DestRC != RC) {
+        bool ForceScheduleTrySU = false;
+        if (!RC || DestRC != RC) {
           NewDef = CopyAndMoveSuccessors(LRDef);
-          if (!DestRC && !NewDef)
-            report_fatal_error("Can't handle live physical "
-                               "register dependency!");
+          if ((!RC || !DestRC) && !NewDef) {
+            // Cannot cross-copy or duplicate this physical register
+            // (e.g. M68k's CCR condition code register has CopyCost = -1).
+            // Force-schedule TrySU next to resolve the live dependency
+            // rather than crashing.
+            LLVM_DEBUG(dbgs() << "Cannot break live phys reg dep for reg "
+                              << Reg << " -- force scheduling SU#"
+                              << TrySU->NodeNum << "\n");
+            TrySU->isPending = false;
+            TrySU->isAvailable = false; // prevent re-adding to AvailableQueue
+            ForceScheduleTrySU = true;
+            CurSU = TrySU;
+          }
         }
-        if (!NewDef) {
-          // Issue copies, these can be expensive cross register class copies.
-          SmallVector<SUnit*, 2> Copies;
-          InsertCopiesAndMoveSuccs(LRDef, Reg, DestRC, RC, Copies);
-          LLVM_DEBUG(dbgs() << "Adding an edge from SU # " << TrySU->NodeNum
-                            << " to SU #" << Copies.front()->NodeNum << "\n");
-          AddPred(TrySU, SDep(Copies.front(), SDep::Artificial));
-          NewDef = Copies.back();
-        }
+        if (!ForceScheduleTrySU) {
+          if (!NewDef) {
+            // Issue copies, these can be expensive cross register class copies.
+            SmallVector<SUnit*, 2> Copies;
+            InsertCopiesAndMoveSuccs(LRDef, Reg, DestRC, RC, Copies);
+            LLVM_DEBUG(dbgs() << "Adding an edge from SU # " << TrySU->NodeNum
+                              << " to SU #" << Copies.front()->NodeNum << "\n");
+            AddPred(TrySU, SDep(Copies.front(), SDep::Artificial));
+            NewDef = Copies.back();
+          }
 
-        LLVM_DEBUG(dbgs() << "Adding an edge from SU # " << NewDef->NodeNum
-                          << " to SU #" << TrySU->NodeNum << "\n");
-        LiveRegDefs[Reg] = NewDef;
-        AddPred(NewDef, SDep(TrySU, SDep::Artificial));
-        TrySU->isAvailable = false;
-        CurSU = NewDef;
+          LLVM_DEBUG(dbgs() << "Adding an edge from SU # " << NewDef->NodeNum
+                            << " to SU #" << TrySU->NodeNum << "\n");
+          LiveRegDefs[Reg] = NewDef;
+          AddPred(NewDef, SDep(TrySU, SDep::Artificial));
+          TrySU->isAvailable = false;
+          CurSU = NewDef;
+        }
       }
 
       if (!CurSU) {

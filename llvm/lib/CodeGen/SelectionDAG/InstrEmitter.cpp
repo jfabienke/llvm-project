@@ -152,7 +152,14 @@ void InstrEmitter::EmitCopyFromReg(SDNode *Node, unsigned ResNo, bool IsClone,
   }
 
   const TargetRegisterClass *SrcRC = nullptr, *DstRC = nullptr;
-  SrcRC = TRI->getMinimalPhysRegClass(SrcReg, VT);
+  // getMinimalPhysRegClass asserts when no register class covers (SrcReg, VT).
+  // Some targets (e.g. M68k) have no register class for types like i1.
+  for (const TargetRegisterClass *TRC : TRI->regclasses())
+    if ((VT == MVT::Other || TRI->isTypeLegalForClass(*TRC, VT)) &&
+        TRC->contains(SrcReg) && (!SrcRC || SrcRC->hasSubClass(TRC)))
+      SrcRC = TRC;
+  if (!SrcRC)
+    SrcRC = TRI->getMinimalPhysRegClass(SrcReg); // unconstrained fallback
 
   // Figure out the register class to create for the destreg.
   if (VRBase) {

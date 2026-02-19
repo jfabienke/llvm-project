@@ -134,8 +134,16 @@ static void CheckForPhysRegDependency(SDNode *Def, SDNode *User, unsigned Op,
   }
 
   if (PhysReg != 0) {
-    const TargetRegisterClass *RC =
-        TRI->getMinimalPhysRegClass(Reg, Def->getSimpleValueType(ResNo));
+    MVT RegVT = Def->getSimpleValueType(ResNo);
+    // getMinimalPhysRegClass asserts when no register class covers (Reg, VT).
+    // Some targets (e.g. M68k) have no register class for types like i1.
+    const TargetRegisterClass *RC = nullptr;
+    for (const TargetRegisterClass *TRC : TRI->regclasses())
+      if ((RegVT == MVT::Other || TRI->isTypeLegalForClass(*TRC, RegVT)) &&
+          TRC->contains(Reg) && (!RC || RC->hasSubClass(TRC)))
+        RC = TRC;
+    if (!RC)
+      RC = TRI->getMinimalPhysRegClass(Reg); // unconstrained fallback
     Cost = RC->getCopyCost();
   }
 }
