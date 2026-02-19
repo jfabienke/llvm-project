@@ -227,6 +227,16 @@ public:
   }
 };
 
+class M68kMachOAsmBackend : public M68kAsmBackend {
+public:
+  M68kMachOAsmBackend(const Target &T) : M68kAsmBackend(T) {}
+
+  std::unique_ptr<MCObjectTargetWriter>
+  createObjectTargetWriter() const override {
+    return createM68kMachObjectWriter();
+  }
+};
+
 } // end anonymous namespace
 
 MCAsmBackend *llvm::createM68kAsmBackend(const Target &T,
@@ -234,6 +244,8 @@ MCAsmBackend *llvm::createM68kAsmBackend(const Target &T,
                                          const MCRegisterInfo &MRI,
                                          const MCTargetOptions &Options) {
   const Triple &TheTriple = STI.getTargetTriple();
+  if (TheTriple.isOSBinFormatMachO())
+    return new M68kMachOAsmBackend(T);
   uint8_t OSABI = MCELFObjectTargetWriter::getOSABI(TheTriple.getOS());
   return new M68kELFAsmBackend(T, OSABI);
 }

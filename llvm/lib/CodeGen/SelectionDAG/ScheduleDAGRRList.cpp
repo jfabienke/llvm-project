@@ -1585,8 +1585,8 @@ SUnit *ScheduleDAGRRList::PickNodeToScheduleBottomUp() {
     // will eventually become available and releaseInterferences(CallResource)
     // will unblock any remaining pending nodes.
     if (Reg == TRI->getNumRegs()) {
-      llvm::errs() << "NEXTSTEP_FIX: CallResource guard hit, SU #"
-                   << TrySU->NodeNum << "\n";
+      LLVM_DEBUG(dbgs() << "  CallResource guard hit for SU #"
+                       << TrySU->NodeNum << "; attempting duplication\n");
       SUnit *LRDef = LiveRegDefs[Reg];
       SUnit *NewDef = LRDef ? CopyAndMoveSuccessors(LRDef) : nullptr;
       if (NewDef) {
