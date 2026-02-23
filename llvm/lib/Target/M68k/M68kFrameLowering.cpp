@@ -832,31 +832,62 @@ bool M68kFrameLowering::spillCalleeSavedRegisters(
     ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   auto &MRI = *static_cast<const M68kRegisterInfo *>(TRI);
   auto DL = MBB.findDebugLoc(MI);
-
-  int FI = 0;
-  unsigned Mask = 0;
-  for (const auto &Info : CSI) {
-    FI = std::max(FI, Info.getFrameIdx());
-    Register Reg = Info.getReg();
-    unsigned Shift = MRI.getSpillRegisterOrder(Reg);
-    Mask |= 1 << Shift;
-  }
-
-  auto I =
-      M68k::addFrameReference(BuildMI(MBB, MI, DL, TII.get(M68k::MOVM32pm)), FI)
-          .addImm(Mask)
-          .setMIFlag(MachineInstr::FrameSetup);
-
-  // Append implicit registers and mem locations
   const MachineFunction &MF = *MBB.getParent();
   const MachineRegisterInfo &RI = MF.getRegInfo();
+
+  // Separate integer and FP callee-saved registers.
+  // MOVEM can only handle integer registers; FP registers need individual
+  // FMOVE instructions.
+  SmallVector<CalleeSavedInfo, 8> IntCSI, FPCSI;
   for (const auto &Info : CSI) {
+    Register Reg = Info.getReg();
+    if (M68k::FPDR32RegClass.contains(Reg) ||
+        M68k::FPDR64RegClass.contains(Reg) ||
+        M68k::FPDR80RegClass.contains(Reg))
+      FPCSI.push_back(Info);
+    else
+      IntCSI.push_back(Info);
+  }
+
+  // Spill integer registers via MOVEM
+  if (!IntCSI.empty()) {
+    int FI = 0;
+    unsigned Mask = 0;
+    for (const auto &Info : IntCSI) {
+      FI = std::max(FI, Info.getFrameIdx());
+      Register Reg = Info.getReg();
+      unsigned Shift = MRI.getSpillRegisterOrder(Reg);
+      Mask |= 1 << Shift;
+    }
+
+    auto I =
+        M68k::addFrameReference(BuildMI(MBB, MI, DL, TII.get(M68k::MOVM32pm)), FI)
+            .addImm(Mask)
+            .setMIFlag(MachineInstr::FrameSetup);
+
+    for (const auto &Info : IntCSI) {
+      Register Reg = Info.getReg();
+      bool IsLiveIn = RI.isLiveIn(Reg);
+      if (!IsLiveIn)
+        MBB.addLiveIn(Reg);
+      I.addReg(Reg, IsLiveIn ? RegState::Implicit : RegState::ImplicitKill);
+      M68k::addMemOperand(I, Info.getFrameIdx(), 0);
+    }
+  }
+
+  // Spill FP registers via individual FMOVE store instructions.
+  // Use FPDR64 explicitly: all M68k FP regs are 80-bit internally, but we
+  // only use f32/f64 in Rust. FMOVE.D (8-byte) preserves enough precision.
+  for (const auto &Info : FPCSI) {
     Register Reg = Info.getReg();
     bool IsLiveIn = RI.isLiveIn(Reg);
     if (!IsLiveIn)
       MBB.addLiveIn(Reg);
-    I.addReg(Reg, IsLiveIn ? RegState::Implicit : RegState::ImplicitKill);
-    M68k::addMemOperand(I, Info.getFrameIdx(), 0);
+
+    TII.storeRegToStackSlot(MBB, MI, Reg,
+                            IsLiveIn ? false : true,
+                            Info.getFrameIdx(), &M68k::FPDR64RegClass,
+                            TRI, Register());
   }
 
   return true;
@@ -868,23 +899,45 @@ bool M68kFrameLowering::restoreCalleeSavedRegisters(
   auto &MRI = *static_cast<const M68kRegisterInfo *>(TRI);
   auto DL = MBB.findDebugLoc(MI);
 
-  int FI = 0;
-  unsigned Mask = 0;
+  // Separate integer and FP callee-saved registers
+  SmallVector<CalleeSavedInfo, 8> IntCSI, FPCSI;
   for (const auto &Info : CSI) {
-    FI = std::max(FI, Info.getFrameIdx());
     Register Reg = Info.getReg();
-    unsigned Shift = MRI.getSpillRegisterOrder(Reg);
-    Mask |= 1 << Shift;
+    if (M68k::FPDR32RegClass.contains(Reg) ||
+        M68k::FPDR64RegClass.contains(Reg) ||
+        M68k::FPDR80RegClass.contains(Reg))
+      FPCSI.push_back(Info);
+    else
+      IntCSI.push_back(Info);
   }
 
-  auto I = M68k::addFrameReference(
-               BuildMI(MBB, MI, DL, TII.get(M68k::MOVM32mp)).addImm(Mask), FI)
-               .setMIFlag(MachineInstr::FrameDestroy);
+  // Restore FP registers via individual FMOVE load instructions (before MOVEM).
+  // Use FPDR64 explicitly (same reasoning as in spillCalleeSavedRegisters).
+  for (const auto &Info : FPCSI) {
+    Register Reg = Info.getReg();
+    TII.loadRegFromStackSlot(MBB, MI, Reg, Info.getFrameIdx(),
+                             &M68k::FPDR64RegClass, TRI, Register());
+  }
 
-  // Append implicit registers and mem locations
-  for (const auto &Info : CSI) {
-    I.addReg(Info.getReg(), RegState::ImplicitDefine);
-    M68k::addMemOperand(I, Info.getFrameIdx(), 0);
+  // Restore integer registers via MOVEM
+  if (!IntCSI.empty()) {
+    int FI = 0;
+    unsigned Mask = 0;
+    for (const auto &Info : IntCSI) {
+      FI = std::max(FI, Info.getFrameIdx());
+      Register Reg = Info.getReg();
+      unsigned Shift = MRI.getSpillRegisterOrder(Reg);
+      Mask |= 1 << Shift;
+    }
+
+    auto I = M68k::addFrameReference(
+                 BuildMI(MBB, MI, DL, TII.get(M68k::MOVM32mp)).addImm(Mask), FI)
+                 .setMIFlag(MachineInstr::FrameDestroy);
+
+    for (const auto &Info : IntCSI) {
+      I.addReg(Info.getReg(), RegState::ImplicitDefine);
+      M68k::addMemOperand(I, Info.getFrameIdx(), 0);
+    }
   }
 
   return true;

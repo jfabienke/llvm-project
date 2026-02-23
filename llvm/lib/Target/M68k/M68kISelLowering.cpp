@@ -27,6 +27,7 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/RuntimeLibcallUtil.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -188,22 +189,59 @@ M68kTargetLowering::M68kTargetLowering(const M68kTargetMachine &TM,
       setOperationAction(ISD::FMAXNUM, VT, Expand);
       setOperationAction(ISD::FCOPYSIGN, VT, Expand);
 
-      // Conversions — expand to libcalls
-      setOperationAction(ISD::FP_TO_SINT, VT, Expand);
-      setOperationAction(ISD::FP_TO_UINT, VT, Expand);
-      setOperationAction(ISD::SINT_TO_FP, VT, Expand);
-      setOperationAction(ISD::UINT_TO_FP, VT, Expand);
-
-      // Control flow with FP — expand (no FP condition codes yet)
+      // Control flow with FP — SELECT must be Custom (not Expand) because
+      // the legalizer expands SELECT_CC into SELECT, so both can't be Expand.
+      // The Custom lowering emits M68kISD::CMOV which becomes a branch sequence.
       setOperationAction(ISD::BR_CC, VT, Expand);
       setOperationAction(ISD::SELECT_CC, VT, Expand);
-      setOperationAction(ISD::SELECT, VT, Expand);
+      setOperationAction(ISD::SELECT, VT, Custom);
       setOperationAction(ISD::SETCC, VT, Expand);
     }
+
+    // FP ↔ integer conversions: the legalizer looks up the action based on the
+    // operand type for SINT_TO_FP/UINT_TO_FP (input = integer), and on the
+    // result type for FP_TO_SINT/FP_TO_UINT (result = integer).
+    // So all four need to be set on integer types.
+    for (auto IVT : {MVT::i8, MVT::i16, MVT::i32}) {
+      setOperationAction(ISD::SINT_TO_FP, IVT, Expand);
+      setOperationAction(ISD::FP_TO_SINT, IVT, Expand);
+      // Unsigned conversions: Expand creates FP comparisons (for the 2^31
+      // threshold check) which we can't handle — no FCMP instruction yet.
+      // Use Custom to emit libcalls directly for i32. i8/i16 get promoted
+      // to i32 during type legalization.
+      if (IVT == MVT::i32) {
+        setOperationAction(ISD::UINT_TO_FP, IVT, Custom);
+        setOperationAction(ISD::FP_TO_UINT, IVT, Custom);
+      } else {
+        setOperationAction(ISD::UINT_TO_FP, IVT, Expand);
+        setOperationAction(ISD::FP_TO_UINT, IVT, Expand);
+      }
+    }
+
+    // Bitcast between integer and FP — no direct move between data and FP
+    // register files, so expand to store+load via stack slot.
+    setOperationAction(ISD::BITCAST, MVT::f32, Expand);
+    setOperationAction(ISD::BITCAST, MVT::i32, Expand);
+    setOperationAction(ISD::BITCAST, MVT::f64, Expand);
+    setOperationAction(ISD::BITCAST, MVT::i64, Expand);
 
     // FP extend/round between f32 and f64
     setOperationAction(ISD::FP_EXTEND, MVT::f64, Expand);
     setOperationAction(ISD::FP_ROUND, MVT::f32, Expand);
+
+    // Extending FP loads — no hardware support for load-and-extend
+    setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
+    setLoadExtAction(ISD::EXTLOAD, MVT::f32, MVT::f16, Expand);
+    setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f16, Expand);
+
+    // Truncating FP stores
+    setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+    // f16 (half precision) — M68k has no f16 support at all
+    setOperationAction(ISD::FP16_TO_FP, MVT::f32, Expand);
+    setOperationAction(ISD::FP_TO_FP16, MVT::f32, Expand);
+    setOperationAction(ISD::FP16_TO_FP, MVT::f64, Expand);
+    setOperationAction(ISD::FP_TO_FP16, MVT::f64, Expand);
   }
 
   computeRegisterProperties(STI.getRegisterInfo());
@@ -1484,6 +1522,10 @@ SDValue M68kTargetLowering::LowerOperation(SDValue Op,
     return LowerATOMICSTORE(Op, DAG);
   case ISD::GlobalTLSAddress:
     return LowerGlobalTLSAddress(Op, DAG);
+  case ISD::FP_TO_UINT:
+    return LowerFP_TO_UINT(Op, DAG);
+  case ISD::UINT_TO_FP:
+    return LowerUINT_TO_FP(Op, DAG);
   }
 }
 
@@ -1885,6 +1927,10 @@ static unsigned TranslateM68kCC(ISD::CondCode SetCCOpcode, const SDLoc &DL,
   case ISD::SETONE:
   case ISD::SETNE:
     return M68k::COND_NE;
+  case ISD::SETO:
+    return M68k::COND_CC; // Ordered (not NaN): FPSR NAN→CCR C, so CC = !NaN
+  case ISD::SETUO:
+    return M68k::COND_CS; // Unordered (NaN): FPSR NAN→CCR C, so CS = NaN
   case ISD::SETOEQ:
   case ISD::SETUNE:
     return M68k::COND_INVALID;
@@ -2200,6 +2246,42 @@ SDValue M68kTargetLowering::LowerToBTST(SDValue Op, ISD::CondCode CC,
   return SDValue();
 }
 
+SDValue M68kTargetLowering::LowerFP_TO_UINT(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  // Emit a libcall directly instead of the default expansion which creates
+  // FP comparisons (for the 2^31 threshold check). The M68k backend doesn't
+  // have FCMP instruction support yet.
+  SDLoc DL(Op);
+  EVT DstVT = Op.getValueType();
+  SDValue Src = Op.getOperand(0);
+  EVT SrcVT = Src.getValueType();
+
+  RTLIB::Libcall LC = RTLIB::getFPTOUINT(SrcVT, DstVT);
+  assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected fp_to_uint types");
+
+  MakeLibCallOptions CallOptions;
+  std::pair<SDValue, SDValue> Tmp = makeLibCall(DAG, LC, DstVT, Src,
+                                                CallOptions, DL);
+  return Tmp.first;
+}
+
+SDValue M68kTargetLowering::LowerUINT_TO_FP(SDValue Op,
+                                             SelectionDAG &DAG) const {
+  // Emit a libcall directly to avoid FP comparison in the default expansion.
+  SDLoc DL(Op);
+  EVT DstVT = Op.getValueType();
+  SDValue Src = Op.getOperand(0);
+  EVT SrcVT = Src.getValueType();
+
+  RTLIB::Libcall LC = RTLIB::getUINTTOFP(SrcVT, DstVT);
+  assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unexpected uint_to_fp types");
+
+  MakeLibCallOptions CallOptions;
+  std::pair<SDValue, SDValue> Tmp = makeLibCall(DAG, LC, DstVT, Src,
+                                                CallOptions, DL);
+  return Tmp.first;
+}
+
 SDValue M68kTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   MVT VT = Op.getSimpleValueType();
   assert(VT == MVT::i8 && "SetCC type must be 8-bit integer");
@@ -2257,6 +2339,26 @@ SDValue M68kTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   }
 
   bool IsFP = Op1.getSimpleValueType().isFloatingPoint();
+
+  // No FCMP instruction support — use soft-float comparison libcalls for FP.
+  if (IsFP) {
+    SDValue NewLHS = Op0, NewRHS = Op1;
+    ISD::CondCode NewCC = CC;
+    softenSetCCOperands(DAG, Op0.getValueType(), NewLHS, NewRHS, NewCC, DL,
+                        Op0, Op1);
+    // softenSetCCOperands may return a scalar result (NewRHS == null) or
+    // integer operands to compare.
+    if (!NewRHS.getNode()) {
+      NewRHS = DAG.getConstant(0, DL, NewLHS.getValueType());
+      NewCC = ISD::SETNE;
+    }
+    // Now we have integer operands — recurse through integer SETCC path.
+    Op0 = NewLHS;
+    Op1 = NewRHS;
+    CC = NewCC;
+    IsFP = false;
+  }
+
   unsigned M68kCC = TranslateM68kCC(CC, DL, IsFP, Op0, Op1, DAG);
   if (M68kCC == M68k::COND_INVALID)
     return SDValue();
@@ -3117,6 +3219,8 @@ static bool isCMOVPseudo(MachineInstr &MI) {
   case M68k::CMOV8d:
   case M68k::CMOV16d:
   case M68k::CMOV32r:
+  case M68k::CMOV_F32:
+  case M68k::CMOV_F64:
     return true;
 
   default:
@@ -3390,6 +3494,8 @@ M68kTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case M68k::CMOV8d:
   case M68k::CMOV16d:
   case M68k::CMOV32r:
+  case M68k::CMOV_F32:
+  case M68k::CMOV_F64:
     return EmitLoweredSelect(MI, BB);
   case M68k::SALLOCA:
     return EmitLoweredSegAlloca(MI, BB);

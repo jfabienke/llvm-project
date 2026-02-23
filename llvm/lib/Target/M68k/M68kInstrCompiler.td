@@ -64,6 +64,19 @@ def CMOV8d  : MxCMove<MxType8d>;
 def CMOV16d : MxCMove<MxType16d>;
 def CMOV32r : MxCMove<MxType32r>;
 
+// FP conditional move pseudos — expanded to branches like integer CMOV.
+let usesCustomInserter = 1, Uses = [CCR], Itinerary = IIC_ALU,
+    Predicates = [AtLeastM68881] in {
+  def CMOV_F32 : MxPseudo<(outs FPDR32:$dst),
+                           (ins FPDR32:$t, FPDR32:$f, i8imm:$cond),
+                           [(set f32:$dst,
+                                 (f32 (MxCmov f32:$t, f32:$f, imm:$cond, CCR)))]>;
+  def CMOV_F64 : MxPseudo<(outs FPDR64:$dst),
+                           (ins FPDR64:$t, FPDR64:$f, i8imm:$cond),
+                           [(set f64:$dst,
+                                 (f64 (MxCmov f64:$t, f64:$f, imm:$cond, CCR)))]>;
+}
+
 
 //===----------------------------------------------------------------------===//
 // Calls

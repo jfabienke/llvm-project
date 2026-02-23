@@ -251,6 +251,8 @@ private:
   SDValue LowerATOMICFENCE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerATOMICLOAD(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerATOMICSTORE(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFP_TO_UINT(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerCallResult(SDValue Chain, SDValue InGlue,
                           CallingConv::ID CallConv, bool IsVarArg,

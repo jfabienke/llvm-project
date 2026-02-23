@@ -833,6 +833,64 @@ def FMOV_STORE_F64p
 }
 } // mayStore, isCodeGenOnly
 
+// FP Load: (An) -> FPn  [ARI — Address Register Indirect, no displacement]
+let mayLoad = 1, isCodeGenOnly = 1 in {
+def FMOV_LOAD_F32j
+    : MxInst<(outs MxFPR32:$dst), (ins MxARI32:$src),
+             "fmove.s\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_j<"src">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:load*/0b0,
+      /*fmt:single*/0b001, (operand "$dst", 3), 0b0000000)
+  );
+}
+
+def FMOV_LOAD_F64j
+    : MxInst<(outs MxFPR64:$dst), (ins MxARI32:$src),
+             "fmove.d\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_j<"src">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:load*/0b0,
+      /*fmt:double*/0b101, (operand "$dst", 3), 0b0000000)
+  );
+}
+} // mayLoad, isCodeGenOnly
+
+// FP Store: FPn -> (An)  [ARI — Address Register Indirect, no displacement]
+let mayStore = 1, isCodeGenOnly = 1 in {
+def FMOV_STORE_F32j
+    : MxInst<(outs), (ins MxARI32:$dst, MxFPR32:$src),
+             "fmove.s\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_j<"dst">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:store*/0b1,
+      /*fmt:single*/0b001, (operand "$src", 3), 0b0000000)
+  );
+}
+
+def FMOV_STORE_F64j
+    : MxInst<(outs), (ins MxARI32:$dst, MxFPR64:$src),
+             "fmove.d\t$src, $dst", []> {
+  let Inst = (ascend
+    (descend 0b1111, /*CoprocID*/0b001, 0b000,
+      MxEncAddrMode_j<"dst">.EA),
+    (descend 0b0, /*R/M*/0b1, /*dir:store*/0b1,
+      /*fmt:double*/0b101, (operand "$src", 3), 0b0000000)
+  );
+}
+} // mayStore, isCodeGenOnly
+
+// Load/store patterns for FP memory access via ARI addressing mode
+def : Pat<(f32 (load MxCP_ARI:$src)), (FMOV_LOAD_F32j MxARI32:$src)>;
+def : Pat<(f64 (load MxCP_ARI:$src)), (FMOV_LOAD_F64j MxARI32:$src)>;
+def : Pat<(store f32:$src, MxCP_ARI:$dst),
+          (FMOV_STORE_F32j MxARI32:$dst, MxFPR32:$src)>;
+def : Pat<(store f64:$src, MxCP_ARI:$dst),
+          (FMOV_STORE_F64j MxARI32:$dst, MxFPR64:$src)>;
+
 // Load/store patterns for FP memory access via ARID addressing mode
 def : Pat<(f32 (load MxCP_ARID:$src)), (FMOV_LOAD_F32p MxARID32:$src)>;
 def : Pat<(f64 (load MxCP_ARID:$src)), (FMOV_LOAD_F64p MxARID32:$src)>;
@@ -840,5 +898,38 @@ def : Pat<(store f32:$src, MxCP_ARID:$dst),
           (FMOV_STORE_F32p MxARID32:$dst, MxFPR32:$src)>;
 def : Pat<(store f64:$src, MxCP_ARID:$dst),
           (FMOV_STORE_F64p MxARID32:$dst, MxFPR64:$src)>;
+
+// FP load from PCD (PC-relative with displacement) — used for global constants.
+// LEA materializes address into An, then ARI FP load.
+def : Pat<(f32 (load MxCP_PCD:$src)), (FMOV_LOAD_F32j (LEA32q MxPCD32:$src))>;
+def : Pat<(f64 (load MxCP_PCD:$src)), (FMOV_LOAD_F64j (LEA32q MxPCD32:$src))>;
+
+// FP load from AL (Absolute Long) — used for global data.
+def : Pat<(f32 (load MxCP_AL:$src)), (FMOV_LOAD_F32j (LEA32b MxAL32:$src))>;
+def : Pat<(f64 (load MxCP_AL:$src)), (FMOV_LOAD_F64j (LEA32b MxAL32:$src))>;
+
+// FP store to AL (Absolute Long)
+def : Pat<(store f32:$src, MxCP_AL:$dst),
+          (FMOV_STORE_F32j (LEA32b MxAL32:$dst), MxFPR32:$src)>;
+def : Pat<(store f64:$src, MxCP_AL:$dst),
+          (FMOV_STORE_F64j (LEA32b MxAL32:$dst), MxFPR64:$src)>;
+
+// FP load/store from ARII (Address Register Indirect with Index) — used for
+// array access patterns like base + index * scale.
+def : Pat<(f32 (load MxCP_ARII:$src)), (FMOV_LOAD_F32j (LEA32f MxARII32:$src))>;
+def : Pat<(f64 (load MxCP_ARII:$src)), (FMOV_LOAD_F64j (LEA32f MxARII32:$src))>;
+def : Pat<(store f32:$src, MxCP_ARII:$dst),
+          (FMOV_STORE_F32j (LEA32f MxARII32:$dst), MxFPR32:$src)>;
+def : Pat<(store f64:$src, MxCP_ARII:$dst),
+          (FMOV_STORE_F64j (LEA32f MxARII32:$dst), MxFPR64:$src)>;
+
+// FP load/store from PCI (PC-relative with Index) — used for indexed access
+// to PC-relative data.
+def : Pat<(f32 (load MxCP_PCI:$src)), (FMOV_LOAD_F32j (LEA32k MxPCI32:$src))>;
+def : Pat<(f64 (load MxCP_PCI:$src)), (FMOV_LOAD_F64j (LEA32k MxPCI32:$src))>;
+def : Pat<(store f32:$src, MxCP_PCI:$dst),
+          (FMOV_STORE_F32j (LEA32k MxPCI32:$dst), MxFPR32:$src)>;
+def : Pat<(store f64:$src, MxCP_PCI:$dst),
+          (FMOV_STORE_F64j (LEA32k MxPCI32:$dst), MxFPR64:$src)>;
 
 } // Predicates = [AtLeastM68881]

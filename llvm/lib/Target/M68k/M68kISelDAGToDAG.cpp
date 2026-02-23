@@ -691,6 +691,79 @@ void M68kDAGToDAGISel::Select(SDNode *Node) {
   case M68kISD::GLOBAL_BASE_REG:
     ReplaceNode(Node, getGlobalBaseReg());
     return;
+
+  case ISD::LOAD: {
+    // Custom FP load selection: when the tablegen patterns can't match an
+    // FP load address (e.g., indexed addressing), fall back to selecting
+    // the address as an i32 into an address register, then FMOV from ARI.
+    auto *LD = cast<LoadSDNode>(Node);
+    EVT VT = LD->getValueType(0);
+    if ((VT == MVT::f32 || VT == MVT::f64) &&
+        LD->getAddressingMode() == ISD::UNINDEXED &&
+        LD->getExtensionType() == ISD::NON_EXTLOAD &&
+        Subtarget->atLeastM68881()) {
+      SDValue Addr = LD->getBasePtr();
+      // Try the tablegen patterns first — they handle ARI, ARID, PCD, AL
+      // efficiently. Only use the fallback if SelectCode would fail.
+      // We check if any specific addressing mode matches.
+      SDValue Tmp1, Tmp2, Tmp3;
+      if (SelectARI(Node, Addr, Tmp1) ||
+          SelectARID(Node, Addr, Tmp1, Tmp2) ||
+          SelectPCD(Node, Addr, Tmp1) ||
+          SelectAL(Node, Addr, Tmp1)) {
+        // A specific mode matches — let SelectCode handle it.
+        break;
+      }
+      // No specific FP addressing mode matched. Select the address as an
+      // i32 value (the integer ISel handles add/shl/etc.), then use
+      // FMOV_LOAD from ARI.
+      SDValue Chain = LD->getChain();
+      SDValue SelAddr = Addr;
+      // Select the address computation
+      Select(SelAddr.getNode());
+      unsigned FMovOpc = (VT == MVT::f32) ? M68k::FMOV_LOAD_F32j
+                                          : M68k::FMOV_LOAD_F64j;
+      MachineSDNode *FMov =
+          CurDAG->getMachineNode(FMovOpc, DL, VT, MVT::Other, SelAddr, Chain);
+      // Transfer memory operand info for alias analysis
+      CurDAG->setNodeMemRefs(FMov,
+                              {LD->getMemOperand()});
+      ReplaceNode(Node, FMov);
+      return;
+    }
+    break;
+  }
+
+  case ISD::STORE: {
+    // Custom FP store selection: same approach as FP load fallback.
+    auto *ST = cast<StoreSDNode>(Node);
+    SDValue Val = ST->getValue();
+    EVT VT = Val.getValueType();
+    if ((VT == MVT::f32 || VT == MVT::f64) &&
+        ST->getAddressingMode() == ISD::UNINDEXED &&
+        !ST->isTruncatingStore() &&
+        Subtarget->atLeastM68881()) {
+      SDValue Addr = ST->getBasePtr();
+      SDValue Tmp1, Tmp2, Tmp3;
+      if (SelectARI(Node, Addr, Tmp1) ||
+          SelectARID(Node, Addr, Tmp1, Tmp2) ||
+          SelectAL(Node, Addr, Tmp1)) {
+        break; // Let SelectCode handle it
+      }
+      SDValue Chain = ST->getChain();
+      SDValue SelAddr = Addr;
+      Select(SelAddr.getNode());
+      unsigned FMovOpc = (VT == MVT::f32) ? M68k::FMOV_STORE_F32j
+                                          : M68k::FMOV_STORE_F64j;
+      MachineSDNode *FMov =
+          CurDAG->getMachineNode(FMovOpc, DL, MVT::Other, SelAddr, Val, Chain);
+      CurDAG->setNodeMemRefs(FMov,
+                              {ST->getMemOperand()});
+      ReplaceNode(Node, FMov);
+      return;
+    }
+    break;
+  }
   }
 
   SelectCode(Node);
